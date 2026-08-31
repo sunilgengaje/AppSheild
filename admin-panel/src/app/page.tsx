@@ -29,9 +29,22 @@ export default function AppShieldDashboard() {
               </code>
             </div>
             
-            <button className="w-full bg-slate-100 text-slate-900 hover:bg-white transition px-6 py-3 rounded-lg font-bold shadow-xl">
-              Download SDK (.aar & .jar)
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <a 
+                href="/downloads/shield-sdk-v1.2.0.aar" 
+                download
+                className="flex-1 bg-slate-100 text-slate-900 hover:bg-white transition px-6 py-3 rounded-lg font-bold text-center shadow-xl flex items-center justify-center gap-2"
+              >
+                <span>📦</span> Download SDK (.aar)
+              </a>
+              <a 
+                href="/downloads/shield-gradle-plugin-v1.2.0.jar" 
+                download
+                className="flex-1 bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700 transition px-6 py-3 rounded-lg font-bold text-center shadow-xl flex items-center justify-center gap-2"
+              >
+                <span>⚙️</span> Download Plugin (.jar)
+              </a>
+            </div>
           </div>
 
           {/* Pricing / Tiers */}
