@@ -38,7 +38,7 @@ import javax.net.ssl.X509TrustManager
  * not hardcoded shared constants across all AppShield customers.
  */
 object TelemetryReporter {
-    private const val BACKEND_URL = "https://3096e0161d2665.lhr.life/v1/telemetry"
+    private const val BACKEND_URL = "https://appshield-backend-lupg.onrender.com/v1/telemetry"
 
     fun reportThreat(
         appId: String,

@@ -61,7 +61,7 @@ object AppShield {
         if (licenseKey.isNotEmpty()) {
             Thread {
                 try {
-                    val url = java.net.URL("https://3096e0161d2665.lhr.life/v1/license/validate?license_key=$licenseKey&app_id=$appId")
+                    val url = java.net.URL("https://appshield-backend-lupg.onrender.com/v1/license/validate?license_key=$licenseKey&app_id=$appId")
                     val connection = url.openConnection() as java.net.HttpURLConnection
                     connection.connectTimeout = 5000
                     connection.readTimeout = 5000
