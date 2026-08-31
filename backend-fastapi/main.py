@@ -2,23 +2,41 @@ import hmac
 import hashlib
 import time
 import jwt
+import os
+import enum
+import uuid
 from typing import List, Optional
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, UploadFile, File, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="AppShield Control Plane (v1.2)", description="Python/FastAPI Backend for Threat Telemetry, Licensing, and API Security")
+# SQLAlchemy Database setup (Supports SQLite locally & PostgreSQL / Supabase in Cloud)
+from sqlalchemy import create_engine, Column, String, Integer, Float, BigInteger, Text, Enum as SQLEnum
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
 
-import enum
-import uuid
-
-# Secrets
+# Secret configurations
 SECRET_KEY = b"REPLACE_WITH_PROVISIONED_SECRET"
 JWT_SECRET = "super_secret_jwt_key_for_demo"
 JWT_ALGORITHM = "HS256"
 
+# Dynamic DB URL: Defaults to local SQLite file, auto-switches to Supabase/PostgreSQL if DATABASE_URL is set
+RAW_DB_URL = os.getenv("DATABASE_URL", "sqlite:///./appshield.db")
+if RAW_DB_URL.startswith("postgres://"):
+    RAW_DB_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
+
+DATABASE_URL = RAW_DB_URL
+
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
 # ==============================================================================
-# Phase 13: SaaS Tiering Configuration
+# Phase 13: SaaS Tiering & DB Models
 # ==============================================================================
 class SubscriptionTier(str, enum.Enum):
     TRIAL = "TRIAL"
@@ -33,6 +51,57 @@ TIER_FEATURES = {
     SubscriptionTier.GOLD: ["Root", "Emulator", "Debug", "Frida", "HookingSystem", "SuspiciousOverlay", "SMSInterception", "Automation", "BehaviourAnomaly", "VishingRisk", "NFCRelaySensorAnomaly", "NFCRelayTimingAnomaly"]
 }
 
+class DBUser(Base):
+    __tablename__ = "users"
+    username = Column(String(50), primary_key=True, index=True)
+    password_hash = Column(String(128), nullable=False)
+    role = Column(String(20), nullable=False, default="user")
+
+class DBLicense(Base):
+    __tablename__ = "licenses"
+    license_key = Column(String(100), primary_key=True, index=True)
+    app_id = Column(String(100), nullable=False)
+    tier = Column(SQLEnum(SubscriptionTier), nullable=False, default=SubscriptionTier.TRIAL)
+    expires_at = Column(Float, nullable=False)
+
+class DBThreatLog(Base):
+    __tablename__ = "threat_logs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    app_id = Column(String(50), nullable=False)
+    threat = Column(String(100), nullable=False)
+    device_id = Column(String(100), nullable=False)
+    confidence = Column(Integer, nullable=False)
+    timestamp = Column(BigInteger, nullable=False)
+    nonce = Column(String(64), nullable=False)
+
+# Auto-create tables & seed default admin
+Base.metadata.create_all(bind=engine)
+
+def seed_db():
+    db = SessionLocal()
+    try:
+        admin_user = db.query(DBUser).filter(DBUser.username == "admin").first()
+        if not admin_user:
+            # Simple SHA256 hashed password for demo admin
+            pwd_hash = hashlib.sha256("admin123".encode()).hexdigest()
+            db.add(DBUser(username="admin", password_hash=pwd_hash, role="admin"))
+            db.commit()
+    finally:
+        db.close()
+
+seed_db()
+
+# DB Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+app = FastAPI(title="AppShield Control Plane (v1.3)", description="FastAPI Security Backend with Dynamic Persistent Database (SQLite/Supabase)")
+
+# Pydantic Models
 class ProvisionRequest(BaseModel):
     app_name: str
     email: str
@@ -41,14 +110,6 @@ class UpgradeRequest(BaseModel):
     license_key: str
     target_tier: SubscriptionTier
 
-# Mock DB: license_key -> { "app_id": str, "tier": SubscriptionTier, "expires_at": float }
-license_db = {}
-
-
-# ==============================================================================
-# Phase 12: Server-Side Validation (Input Sanitization)
-# Strict Field constraints prevent SQLi, XSS, and buffer overflows natively.
-# ==============================================================================
 class ThreatEvent(BaseModel):
     app_id: str = Field(..., max_length=50, pattern=r"^[a-zA-Z0-9\._]+$")
     threat: str = Field(..., max_length=100)
@@ -72,9 +133,7 @@ class CallVerifyRequest(BaseModel):
     device_id: str
     reported_caller_id: str
 
-# Storage simulation
-threat_db = []
-nonce_cache = set() # Phase 12: Replay Attack Cache
+nonce_cache = set()
 security = HTTPBearer()
 
 def verify_hmac(payload: bytes, signature: str) -> bool:
@@ -86,11 +145,7 @@ def verify_hmac(payload: bytes, signature: str) -> bool:
     except Exception:
         return False
 
-# ==============================================================================
-# Phase 12: Authentication Bypass Defense
-# ==============================================================================
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Validates JWT. Defends against Auth Bypass."""
     try:
         payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload
@@ -100,56 +155,55 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         raise HTTPException(status_code=401, detail="Invalid token")
 
 @app.post("/v1/auth/login")
-async def login(request: LoginRequest):
-    """Issues a JWT for the mock banking app."""
-    # Mock auth: any user/pass works for demo, assigns role based on username
-    role = "admin" if request.username == "admin" else "user"
+async def login(request: LoginRequest, db: Session = Depends(get_db)):
+    """Issues JWT token after verifying user in persistent DB."""
+    user = db.query(DBUser).filter(DBUser.username == request.username).first()
+    pwd_hash = hashlib.sha256(request.password.encode()).hexdigest()
+    
+    if not user or user.password_hash != pwd_hash:
+        # Auto-provision on demo login if not existing
+        if request.username == "admin" and request.password in ["admin", "admin123"]:
+            role = "admin"
+        else:
+            role = "user"
+            db.add(DBUser(username=request.username, password_hash=pwd_hash, role=role))
+            db.commit()
+    else:
+        role = user.role
+
     payload = {
         "user_id": request.username,
         "role": role,
-        "exp": time.time() + 3600 # 1 hour
+        "exp": time.time() + 3600
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return {"access_token": token, "token_type": "bearer"}
 
-# ==============================================================================
-# Phase 12: IDOR (Insecure Direct Object Reference) & Authorization Bypass Defense
-# ==============================================================================
 @app.post("/v1/users/{target_user_id}/transaction")
 async def execute_transaction(
     target_user_id: str,
     transaction: TransactionRequest,
     user: dict = Depends(get_current_user)
 ):
-    """
-    Mock Banking Endpoint.
-    Defends against IDOR: Checks if the JWT user matches the target_user_id.
-    Defends against Auth Bypass: Depends on get_current_user (JWT).
-    """
     requester_id = user.get("user_id")
     role = user.get("role")
     
-    # IDOR Check: Users can only transact on their own account unless they are an admin.
     if requester_id != target_user_id and role != "admin":
-        print(f"🚨 [IDOR BLOCKED] User '{requester_id}' attempted to access '{target_user_id}'")
-        raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to access this account (IDOR Blocked)")
+        raise HTTPException(status_code=403, detail="Forbidden: IDOR Blocked")
         
     return {"status": "success", "tx_id": "TXN991823", "amount": transaction.amount}
 
-# ==============================================================================
-# Telemetry Endpoint (Replay & Tamper Defenses)
-# ==============================================================================
 @app.post("/v1/telemetry")
 async def report_threat(
     request: Request,
     event: ThreatEvent,
+    db: Session = Depends(get_db),
     x_appshield_signature: Optional[str] = Header(None)
 ):
-    """Receives telemetry. Enforces PoW, HMAC, and Replay protections."""
-    # 0. Proof of Work (DDoS)
+    # 0. Proof of Work (DDoS protection)
     x_appshield_pow = request.headers.get("x-appshield-pow-solution")
     if not x_appshield_pow:
-        raise HTTPException(status_code=429, detail="Missing Proof of Work - Request Dropped")
+        raise HTTPException(status_code=429, detail="Missing Proof of Work")
     
     parts = x_appshield_pow.split(":")
     if len(parts) != 3 or not parts[2].startswith("0000"):
@@ -158,79 +212,82 @@ async def report_threat(
     if hashlib.sha256(f"{parts[0]}{parts[1]}".encode()).hexdigest() != parts[2]:
         raise HTTPException(status_code=429, detail="Invalid PoW")
 
-    # 1. Verify Signature (Tampering)
+    # 1. Verify Signature
     if not x_appshield_signature:
         raise HTTPException(status_code=401, detail="Missing security signature")
 
     body = await request.body()
     if not verify_hmac(body, x_appshield_signature):
-         raise HTTPException(status_code=403, detail="Invalid signature - tampering detected")
+         raise HTTPException(status_code=403, detail="Invalid signature")
 
-    # 2. Replay Attack Defense (Timestamp + Nonce Cache)
+    # 2. Replay Protection
     current_time_ms = int(time.time() * 1000)
     if abs(current_time_ms - event.timestamp) > 300000:
         raise HTTPException(status_code=403, detail="Request expired")
         
     if event.nonce in nonce_cache:
-        print(f"🚨 [REPLAY BLOCKED] Duplicate nonce detected: {event.nonce}")
-        raise HTTPException(status_code=403, detail="Replay attack detected (Nonce already used)")
+        raise HTTPException(status_code=403, detail="Replay attack detected")
         
-    nonce_cache.add(event.nonce) # Store nonce to prevent reuse
-    # Note: In production, nonces in Redis should have a TTL of 300s (matching the window).
+    nonce_cache.add(event.nonce)
 
-    # 3. Log Event
-    print(f"🚨 [THREAT DETECTED] App: {event.app_id} | Threat: {event.threat} | Device: {event.device_id}")
-    threat_db.append(event)
-    return {"status": "accepted", "event_id": len(threat_db)}
+    # 3. Store Threat in Persistent Database
+    db_event = DBThreatLog(
+        app_id=event.app_id,
+        threat=event.threat,
+        device_id=event.device_id,
+        confidence=event.confidence,
+        timestamp=event.timestamp,
+        nonce=event.nonce
+    )
+    db.add(db_event)
+    db.commit()
+    db.refresh(db_event)
+    
+    print(f"🚨 [THREAT SAVED TO DB] App: {event.app_id} | Threat: {event.threat}")
+    return {"status": "accepted", "event_id": db_event.id}
 
-# ==============================================================================
-# Legacy Endpoints (License, AI Fraud, Intel)
-# ==============================================================================
-# ==============================================================================
-# Phase 13: SaaS License Provisioning & Tier Management
-# ==============================================================================
 @app.post("/v1/license/provision")
-async def provision_license(req: ProvisionRequest):
-    """Creates a new 30-day TRIAL license."""
+async def provision_license(req: ProvisionRequest, db: Session = Depends(get_db)):
     app_id = f"com.{req.app_name.lower().replace(' ', '')}"
     license_key = f"SHIELD-{uuid.uuid4().hex}"
+    expires_at = time.time() + (30 * 24 * 3600)
     
-    license_db[license_key] = {
-        "app_id": app_id,
-        "tier": SubscriptionTier.TRIAL,
-        "expires_at": time.time() + (30 * 24 * 3600) # 30 days
-    }
+    new_license = DBLicense(
+        license_key=license_key,
+        app_id=app_id,
+        tier=SubscriptionTier.TRIAL,
+        expires_at=expires_at
+    )
+    db.add(new_license)
+    db.commit()
+    
     return {"status": "success", "app_id": app_id, "license_key": license_key, "tier": "TRIAL"}
 
 @app.post("/v1/license/upgrade")
-async def upgrade_license(req: UpgradeRequest):
-    """Upgrades an existing license to a paid tier."""
-    if req.license_key not in license_db:
+async def upgrade_license(req: UpgradeRequest, db: Session = Depends(get_db)):
+    lic = db.query(DBLicense).filter(DBLicense.license_key == req.license_key).first()
+    if not lic:
         raise HTTPException(status_code=404, detail="License not found")
         
-    license_db[req.license_key]["tier"] = req.target_tier
+    lic.tier = req.target_tier
+    db.commit()
     return {"status": "success", "new_tier": req.target_tier}
 
 @app.get("/v1/license/validate")
-async def validate_license(license_key: str, app_id: str):
-    """
-    Called by the AppShield SDK at runtime.
-    Returns a signed JWT containing the active policy features.
-    """
-    if license_key not in license_db:
-        # Fallback for the hardcoded CLI test key during Phase 1-12
+async def validate_license(license_key: str, app_id: str, db: Session = Depends(get_db)):
+    lic = db.query(DBLicense).filter(DBLicense.license_key == license_key).first()
+    
+    if not lic:
         if license_key.startswith("SHIELD-"):
-            # Provide GOLD access by default to legacy test apps
             tier = SubscriptionTier.GOLD
             expires_at = time.time() + (365 * 24 * 3600)
         else:
             return {"valid": False, "reason": "Invalid or expired license"}
     else:
-        record = license_db[license_key]
-        if record["app_id"] != app_id or record["expires_at"] < time.time():
+        if lic.app_id != app_id or lic.expires_at < time.time():
             return {"valid": False, "reason": "License mismatch or expired"}
-        tier = record["tier"]
-        expires_at = record["expires_at"]
+        tier = lic.tier
+        expires_at = lic.expires_at
 
     policy_payload = {
         "app_id": app_id,
@@ -238,17 +295,22 @@ async def validate_license(license_key: str, app_id: str):
         "features": TIER_FEATURES[tier],
         "exp": expires_at
     }
-    # Sign the policy so the SDK knows it hasn't been tampered with
     policy_jwt = jwt.encode(policy_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    
-    return {
-        "valid": True,
-        "policy_token": policy_jwt
-    }
+    return {"valid": True, "policy_token": policy_jwt}
 
 @app.get("/v1/threats", response_model=List[ThreatEvent])
-async def get_threats():
-    return threat_db
+async def get_threats(db: Session = Depends(get_db)):
+    logs = db.query(DBThreatLog).all()
+    return [
+        ThreatEvent(
+            app_id=log.app_id,
+            threat=log.threat,
+            device_id=log.device_id,
+            confidence=log.confidence,
+            timestamp=log.timestamp,
+            nonce=log.nonce
+        ) for log in logs
+    ]
 
 @app.post("/v1/ai/voice-liveness")
 async def verify_voice_liveness(

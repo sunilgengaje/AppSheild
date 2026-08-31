@@ -3,3 +3,5 @@ uvicorn
 pydantic
 pyjwt
 python-multipart
+sqlalchemy
+psycopg2-binary
