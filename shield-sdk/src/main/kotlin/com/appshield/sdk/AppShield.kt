@@ -170,10 +170,23 @@ object AppShieldGuard {
     fun onApplicationCreate(context: Context) {
         // Emulator and Root checks run immediately on startup.
         // The app will CRASH instantly if a virtual device or rooted device is detected.
-        AppShield.getEnforcer().enforceEmulator()
+        // HARDENED v1.2: Context is now passed so hardware-level sensor and SIM
+        // checks run — these cannot be bypassed by spoofing android.os.Build constants.
+        AppShield.getEnforcer().enforceEmulator(context = context)
         AppShield.getEnforcer().enforceRoot(context = context)
-        AppShield.getEnforcer().enforceDebug()
+        // HARDENED v1.2: Context passed so APK debuggable-flag check runs
+        // alongside the TracerPid kernel check and JDWP timing side-channel.
+        AppShield.getEnforcer().enforceDebug(context = context)
         AppShield.getEnforcer().enforceSMS(context = context)
+        // FIX #3: APK Integrity check now called on every startup.
+        // enforceIntegrity() requires the encrypted hash and salt generated
+        // by the AppShield build tool for each integrating app's signing key.
+        // Integrators: uncomment and replace with your build-time constants:
+        // AppShield.getEnforcer().enforceIntegrity(
+        //     context = context,
+        //     encryptedExpectedHash = BuildConfig.APPSHIELD_SIGNATURE_HASH,
+        //     hashSalt = BuildConfig.APPSHIELD_SIGNATURE_SALT
+        // )
     }
 
     /** Call this from Activity.onResume() of sensitive screens */

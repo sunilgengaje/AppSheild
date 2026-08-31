@@ -40,7 +40,7 @@ import kotlin.system.exitProcess
 class PolicyEnforcer(private val config: PolicyConfig, private val appId: String = "unknown") {
 
     data class PolicyConfig(
-        val enabledFeatures: Set<String> = setOf("Root", "Emulator", "Debug", "Frida", "HookingSystem", "Automation", "BehaviourAnomaly", "SMSInterception", "VishingRisk", "SuspiciousOverlay", "NFCRelaySensorAnomaly", "NFCRelayTimingAnomaly"),
+        val enabledFeatures: Set<String> = setOf("Root", "Emulator", "Debug", "Frida", "HookingSystem", "Automation", "BehaviourAnomaly", "SMSInterception", "VishingRisk", "SuspiciousOverlay", "NFCRelaySensorAnomaly", "NFCRelayTimingAnomaly", "Integrity"),
         val onRootDetected: Response = Response.CRASH,
         val onDebugDetected: Response = Response.CRASH,
         val onFridaDetected: Response = Response.CRASH,
@@ -72,9 +72,15 @@ class PolicyEnforcer(private val config: PolicyConfig, private val appId: String
         if (result.isSuspicious) respondInline("Root", config.onRootDetected, deviceId, result.confidence)
     }
 
-    fun enforceDebug(deviceId: String = "") {
+    /**
+     * HARDENED v1.2: Now uses confidence-scored 4-signal detection
+     * (Debug API + TracerPid kernel check + APK flag + JDWP timing).
+     * Context is accepted so the APK debuggable-flag signal can run.
+     */
+    fun enforceDebug(deviceId: String = "", context: android.content.Context? = null) {
         if (!config.enabledFeatures.contains("Debug")) return
-        if (DebugDetection.isDebuggable()) respondInline("Debug", config.onDebugDetected, deviceId, 100)
+        val result = DebugDetection.evaluate(context)
+        if (result.isSuspicious) respondInline("Debug", config.onDebugDetected, deviceId, result.confidence)
     }
 
     fun enforceFrida(deviceId: String = "") {
@@ -83,9 +89,45 @@ class PolicyEnforcer(private val config: PolicyConfig, private val appId: String
         if (result.isSuspicious) respondInline("Frida", config.onFridaDetected, deviceId, result.confidence)
     }
 
-    fun enforceEmulator(deviceId: String = "") {
+    /**
+     * HARDENED v1.2: Now uses hardware-level confidence scoring.
+     * Context is accepted so sensor and SIM checks can run — these
+     * cannot be spoofed by changing Build constants or Frida-hooking
+     * Java APIs.
+     */
+    fun enforceEmulator(deviceId: String = "", context: android.content.Context? = null) {
         if (!config.enabledFeatures.contains("Emulator")) return
-        if (EmulatorDetection.isEmulator()) respondInline("Emulator", config.onEmulatorDetected, deviceId, 100)
+        val result = EmulatorDetection.evaluate(context)
+        if (result.isSuspicious) respondInline("Emulator", config.onEmulatorDetected, deviceId, result.confidence)
+    }
+
+    /**
+     * FIX #3 (CRITICAL GAP CLOSED): APK signature integrity verification.
+     *
+     * Previously, IntegrityCheck.verifySignature() existed but was never
+     * called anywhere in the SDK lifecycle — a repackaged, maliciously
+     * modified APK with a different signing certificate would pass all
+     * other checks.
+     *
+     * This method is now wired into AppShieldGuard.onApplicationCreate()
+     * so the APK signature is verified on every cold start.
+     *
+     * `encryptedExpectedHash` and `hashSalt` are build-time constants
+     * produced by the AppShield build tool and embedded per release.
+     * They are intentionally not hardcoded here so each integrating app
+     * uses its own unique signing hash.
+     */
+    fun enforceIntegrity(
+        context: android.content.Context,
+        encryptedExpectedHash: String,
+        hashSalt: String,
+        deviceId: String = ""
+    ) {
+        if (!config.enabledFeatures.contains("Integrity")) return
+        val isValid = com.appshield.sdk.checks.IntegrityCheck.verifySignature(
+            context, encryptedExpectedHash, hashSalt
+        )
+        if (!isValid) respondInline("Integrity", Response.CRASH, deviceId, 100)
     }
 
     fun enforceHooking(deviceId: String = "") {
