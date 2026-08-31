@@ -1,0 +1,19 @@
+# AppShield Security Policy Configuration
+protection:
+  string_encryption: true
+  control_flow_flattening: true
+  asset_encryption: true
+  resource_manglng: true
+  polymorphic_hardening: true
+
+rasp:
+  on_root: EXIT
+  on_frida: CRASH
+  on_debug: LOG
+  on_emulator: LOG
+  on_hook: EXIT
+
+telemetry:
+  enabled: true
+  endpoint: "https://api.yourdomain.com/v1/telemetry"
+  api_key: "YOUR_BACKEND_API_KEY"

@@ -1,0 +1,32 @@
+# ==============================================================================
+# AppShield Fastlane Example
+# Phase 10b: CI/CD Integration for iOS
+# ==============================================================================
+
+default_platform(:ios)
+
+platform :ios do
+  
+  desc "Build and Protect Release IPA"
+  lane :release do
+    
+    # 1. Standard Fastlane build (compiles the app but pauses before signing if configured, 
+    # or you can use the AppShield Xcode Run Script which executes during gym automatically).
+    # If the Xcode Run Script is installed, `gym` will inherently run it.
+    
+    gym(
+      scheme: "CentSampoorna",
+      export_method: "app-store",
+      clean: true
+    )
+    
+    # Alternative: If you are NOT using the Xcode Run Script, you can protect the generated .ipa post-build
+    # using an explicit shell action:
+    
+    # sh("appshield-cli ios-protect --ipa ./CentSampoorna.ipa --key ${ENV['APPSHIELD_LICENSE_KEY']}")
+    
+    # 2. Upload to TestFlight / App Store Connect
+    upload_to_testflight
+    
+  end
+end

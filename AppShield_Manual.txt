@@ -1,0 +1,69 @@
+App Shield Platform - Technical Manual & Integration Guide
+Version 1.0
+
+===========================================================================
+1. PRODUCT OVERVIEW
+===========================================================================
+App Shield is a DexGuard-class security platform providing multi-layered
+protection for mobile applications (Android, iOS, and Hybrid). It combines
+Runtime Application Self-Protection (RASP) with advanced build-time
+obfuscation to defend against reverse engineering and tampering.
+
+===========================================================================
+2. CORE SECURITY FEATURES
+===========================================================================
+
+2.1 RASP (Runtime Application Self-Protection)
+- Root/Jailbreak Detection: Multi-tier checks (Java + Native C++).
+- Anti-Debugging: Prevents ptrace attachment and detects debug flags.
+- Anti-Frida/Xposed: Scans memory maps and ports for hooking frameworks.
+- Emulator Detection: Fingerprints hardware to block virtual environments.
+- App Integrity: Validates SHA-256 signing certificates at runtime.
+
+2.2 Obfuscation & Hardening
+- String Encryption: XOR-based runtime deobfuscation.
+- Control Flow Flattening: Scrambles method logic into state machines.
+- Native Shielding: Moves security logic into compiled .so libraries.
+- Asset Encryption: Protects internal config files and assets.
+- Polymorphic Hardening: Injects unique "junk code" per build.
+- Resource Mangling: Renames layout/drawable files to obscure names.
+
+===========================================================================
+3. INTEGRATION STEPS
+===========================================================================
+
+3.1 Android (Native)
+1. Copy 'sdks/android/src' to your project.
+2. Initialize in Application.onCreate():
+   PolicyEnforcer(PolicyConfig(onRoot=EXIT)).runChecks()
+
+3.2 iOS (Native)
+1. Add 'sdks/ios/Checks' to your Xcode project.
+2. Call SecurityChecks.isJailbroken() in AppDelegate.
+
+3.3 Flutter / Hybrid
+1. Use the provided MethodChannel bridge in MainActivity.kt and AppDelegate.swift.
+2. Call AppShield.checkSecurity() from your Dart code.
+
+===========================================================================
+4. BUILD PIPELINE (CLI)
+===========================================================================
+After building your app, run the CLI to apply hardening:
+
+java -jar appshield.jar build \
+  --input app-release.apk \
+  --license-key YOUR_KEY \
+  --policy security-policy.yaml
+
+===========================================================================
+5. TELEMETRY & MONITORING
+===========================================================================
+The SDK automatically reports threats to the Control Plane.
+Access your dashboard at https://dashboard.yourdomain.com to view:
+- Live threat maps.
+- Compromised device analytics.
+- Policy management.
+
+---------------------------------------------------------------------------
+Copyright 2024 App Shield Security. All Rights Reserved.
+---------------------------------------------------------------------------

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="24dp">
+
+    <ImageView
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:src="@android:drawable/ic_lock_idle_lock"
+        android:contentDescription="Security Icon" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="AppShield Native Security"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginTop="16dp" />
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Status: Initializing..."
+        android:layout_marginTop="8dp" />
+
+    <TextView
+        android:id="@+id/riskScoreText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Risk Score: 0/100"
+        android:layout_marginTop="8dp" />
+
+    <Button
+        android:id="@+id/checkButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Manual Security Sweep"
+        android:layout_marginTop="24dp" />
+
+    <Button
+        android:id="@+id/secretButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Access Hardened Data"
+        android:layout_marginTop="12dp" />
+
+</LinearLayout>

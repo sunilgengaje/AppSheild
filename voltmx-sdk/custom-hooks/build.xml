@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+==============================================================================
+ AppShield Volt MX Custom Hook (App Factory)
+ Phase 10c: Zero-Touch Integration for HCL Volt MX
+==============================================================================
+-->
+<project name="AppShieldVoltMXHook" default="post-build">
+
+    <!-- App Factory exposes environment variables representing build outputs -->
+    <property environment="env"/>
+    
+    <!-- Target: post-build -->
+    <!-- This target is executed by App Factory automatically after the native binary is built -->
+    <target name="post-build">
+        <echo message="🛡️ [AppShield] Starting Volt MX Auto-Protection Pipeline..."/>
+
+        <!-- Validate License -->
+        <condition property="hasLicense">
+            <isset property="env.APPSHIELD_LICENSE_KEY"/>
+        </condition>
+        <fail unless="hasLicense" message="❌ [AppShield] APPSHIELD_LICENSE_KEY not set in App Factory environment."/>
+
+        <!-- Determine Platform Output Paths -->
+        <condition property="isAndroid">
+            <available file="${env.BUILD_OUTPUT_DIR}/android" type="dir"/>
+        </condition>
+        <condition property="isIOS">
+            <available file="${env.BUILD_OUTPUT_DIR}/ios" type="dir"/>
+        </condition>
+
+        <antcall target="protect-android"/>
+        <antcall target="protect-ios"/>
+
+        <echo message="✅ [AppShield] Volt MX Protection Complete. Safe for Distribution."/>
+    </target>
+
+    <!-- Target for Android APK/AAB Protection -->
+    <target name="protect-android" if="isAndroid">
+        <echo message="🛡️ [AppShield] Locating Android Artifacts..."/>
+        
+        <!-- Simulate passing the artifact to AppShield CLI in the CI/CD node -->
+        <echo message="🛡️ [AppShield] Applying DexTransformer and AutoInjector to Android Build..."/>
+        
+        <exec executable="appshield-cli" failonerror="true">
+            <arg value="build"/>
+            <arg value="-i"/>
+            <!-- App Factory typically drops the final APK here -->
+            <arg value="${env.BUILD_OUTPUT_DIR}/android/app-release.apk"/>
+            <arg value="-k"/>
+            <arg value="${env.APPSHIELD_LICENSE_KEY}"/>
+        </exec>
+    </target>
+
+    <!-- Target for iOS IPA Protection -->
+    <target name="protect-ios" if="isIOS">
+        <echo message="🛡️ [AppShield] Locating iOS Artifacts..."/>
+        
+        <echo message="🛡️ [AppShield] Applying Mach-O Obfuscation to iOS Build..."/>
+        
+        <exec executable="appshield-cli" failonerror="true">
+            <arg value="ios-protect"/>
+            <arg value="--ipa"/>
+            <!-- App Factory typically drops the final IPA here -->
+            <arg value="${env.BUILD_OUTPUT_DIR}/ios/App.ipa"/>
+            <arg value="--key"/>
+            <arg value="${env.APPSHIELD_LICENSE_KEY}"/>
+        </exec>
+    </target>
+
+</project>

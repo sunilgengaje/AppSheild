@@ -1,0 +1,31 @@
+# Android
+build/
+.gradle/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild
+.cxx/
+*.apk
+*.aar
+
+# Node
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# MacOS
+.DS_Store
+
+# SaaS Release
+saas_release/
+*.zip
