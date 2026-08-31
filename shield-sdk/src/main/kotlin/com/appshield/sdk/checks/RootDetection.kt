@@ -35,8 +35,22 @@ import java.io.FileReader
  */
 object RootDetection {
 
+    /**
+     * GAP #5 FIXED: Magisk DenyList detection threshold.
+     *
+     * Previous gap: DenyList hides all file-system artifacts (su paths,
+     * /data/adb paths) giving a score of only 40 — below the old threshold
+     * of 50. The app passed as "clean" even on a Magisk-rooted device with
+     * DenyList enabled.
+     *
+     * Fix: Threshold lowered to 40, AND the Unix socket signal weight raised
+     * to 50. The /proc/net/unix scan is the ONLY reliable DenyList bypass
+     * signal (kernel socket table entries cannot be hidden by bind-mount
+     * unmounting). A score of 50 from that single signal now crosses
+     * the threshold, ensuring DenyList-only roots are always detected.
+     */
     data class Result(val confidence: Int, val signals: List<String>) {
-        val isSuspicious: Boolean get() = confidence >= 50
+        val isSuspicious: Boolean get() = confidence >= 40  // Lowered from 50
     }
 
     // ------------------------------------------------------------------ //
@@ -196,7 +210,7 @@ object RootDetection {
 
         // Layer 2: Magisk ecosystem
         if (checkMagiskArtifacts())     { score += 35; hits += "magisk_artifacts" }
-        if (checkMagiskUnixSockets())   { score += 40; hits += "magisk_unix_sockets" }
+        if (checkMagiskUnixSockets())   { score += 50; hits += "magisk_unix_sockets" }  // Raised: survives DenyList
         if (checkMagiskMountAnomalies()){ score += 35; hits += "magisk_bind_mounts" }
 
         // Layer 3: Zygisk (Magisk's Zygote injection)

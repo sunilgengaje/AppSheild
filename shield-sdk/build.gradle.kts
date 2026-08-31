@@ -10,6 +10,11 @@ android {
 
     defaultConfig {
         minSdk = 21
+        // Gap #4 fix: Consumer ProGuard rules are bundled into the AAR.
+        // They are automatically applied to any app that depends on this SDK,
+        // preventing R8 from renaming JNI bridge methods or stripping
+        // security-critical code paths.
+        consumerProguardFiles("consumer-proguard-rules.pro")
     }
 
     compileOptions {
