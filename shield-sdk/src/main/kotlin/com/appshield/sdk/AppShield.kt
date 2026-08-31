@@ -168,6 +168,9 @@ object AppShieldGuard {
 
     /** Call this from Application.onCreate() */
     fun onApplicationCreate(context: Context) {
+        // Emulator and Root checks run immediately on startup.
+        // The app will CRASH instantly if a virtual device or rooted device is detected.
+        AppShield.getEnforcer().enforceEmulator()
         AppShield.getEnforcer().enforceRoot(context = context)
         AppShield.getEnforcer().enforceDebug()
         AppShield.getEnforcer().enforceSMS(context = context)
