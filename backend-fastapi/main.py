@@ -5,19 +5,20 @@ import jwt
 import os
 import enum
 import uuid
+from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import FastAPI, Header, HTTPException, Request, Depends, UploadFile, File, Form
+from fastapi import FastAPI, Header, HTTPException, Request, Depends, UploadFile, File, Form, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-# SQLAlchemy Database setup (Supports SQLite locally & PostgreSQL / Supabase in Cloud)
-from sqlalchemy import create_engine, Column, String, Integer, Float, BigInteger, Text, Enum as SQLEnum
+from sqlalchemy import create_engine, Column, String, Integer, Float, BigInteger, Text, Boolean, Enum as SQLEnum, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
 # Secret configurations
 SECRET_KEY = b"REPLACE_WITH_PROVISIONED_SECRET"
-JWT_SECRET = "super_secret_jwt_key_for_demo"
+JWT_SECRET = "super_secret_jwt_key_for_appshield_enterprise_v1"
 JWT_ALGORITHM = "HS256"
 
 # Dynamic DB URL: Defaults to local SQLite file, auto-switches to Supabase/PostgreSQL if DATABASE_URL is set
@@ -36,13 +37,24 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 # ==============================================================================
-# Phase 13: SaaS Tiering & DB Models
+# Database Schemas (Users, Quotes/Demos, Licenses, Threats)
 # ==============================================================================
+class UserRole(str, enum.Enum):
+    SUPER_ADMIN = "SUPER_ADMIN"
+    CLIENT = "CLIENT"
+
 class SubscriptionTier(str, enum.Enum):
     TRIAL = "TRIAL"
     BRONZE = "BRONZE"
     SILVER = "SILVER"
     GOLD = "GOLD"
+
+class LeadStatus(str, enum.Enum):
+    NEW = "NEW"
+    DEMO_SCHEDULED = "DEMO_SCHEDULED"
+    QUOTATION_SENT = "QUOTATION_SENT"
+    PO_RECEIVED = "PO_RECEIVED"
+    COMPLETED = "COMPLETED"
 
 TIER_FEATURES = {
     SubscriptionTier.TRIAL: ["Root", "Emulator", "Debug"],
@@ -55,37 +67,95 @@ class DBUser(Base):
     __tablename__ = "users"
     username = Column(String(50), primary_key=True, index=True)
     password_hash = Column(String(128), nullable=False)
-    role = Column(String(20), nullable=False, default="user")
+    role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.CLIENT)
+    company_name = Column(String(100), nullable=False)
+    email = Column(String(100), nullable=False)
+    app_id = Column(String(100), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class DBQuoteRequest(Base):
+    __tablename__ = "quote_requests"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    company_name = Column(String(100), nullable=False)
+    email = Column(String(100), nullable=False)
+    phone = Column(String(50), nullable=True)
+    package_tier = Column(SQLEnum(SubscriptionTier), nullable=False, default=SubscriptionTier.GOLD)
+    status = Column(SQLEnum(LeadStatus), nullable=False, default=LeadStatus.NEW)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class DBLicense(Base):
     __tablename__ = "licenses"
     license_key = Column(String(100), primary_key=True, index=True)
-    app_id = Column(String(100), nullable=False)
+    app_id = Column(String(100), nullable=False, index=True)
+    client_username = Column(String(50), nullable=False)
     tier = Column(SQLEnum(SubscriptionTier), nullable=False, default=SubscriptionTier.TRIAL)
-    expires_at = Column(Float, nullable=False)
+    valid_from = Column(String(20), nullable=False)  # YYYY-MM-DD
+    valid_to = Column(String(20), nullable=False)    # YYYY-MM-DD
+    expires_at = Column(Float, nullable=False)       # Epoch timestamp
+    is_active = Column(Boolean, default=True)
 
 class DBThreatLog(Base):
     __tablename__ = "threat_logs"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    app_id = Column(String(50), nullable=False)
+    app_id = Column(String(50), nullable=False, index=True)
     threat = Column(String(100), nullable=False)
     device_id = Column(String(100), nullable=False)
     confidence = Column(Integer, nullable=False)
     timestamp = Column(BigInteger, nullable=False)
     nonce = Column(String(64), nullable=False)
 
-# Auto-create tables & seed default admin
+# Auto-create tables & seed default accounts
 Base.metadata.create_all(bind=engine)
 
 def seed_db():
     db = SessionLocal()
     try:
+        # Seed Super Admin
         admin_user = db.query(DBUser).filter(DBUser.username == "admin").first()
         if not admin_user:
-            # Simple SHA256 hashed password for demo admin
-            pwd_hash = hashlib.sha256("admin123".encode()).hexdigest()
-            db.add(DBUser(username="admin", password_hash=pwd_hash, role="admin"))
-            db.commit()
+            admin_pwd = hashlib.sha256("admin123".encode()).hexdigest()
+            db.add(DBUser(
+                username="admin",
+                password_hash=admin_pwd,
+                role=UserRole.SUPER_ADMIN,
+                company_name="AppShield Security HQ",
+                email="admin@appshield.com",
+                app_id="com.appshield.admin"
+            ))
+        
+        # Seed Pre-provisioned Demo B2B Client (Acme Banking Corp)
+        client_demo = db.query(DBUser).filter(DBUser.username == "client_demo").first()
+        if not client_demo:
+            client_pwd = hashlib.sha256("client123".encode()).hexdigest()
+            db.add(DBUser(
+                username="client_demo",
+                password_hash=client_pwd,
+                role=UserRole.CLIENT,
+                company_name="Acme Banking Corp",
+                email="security@acmebank.com",
+                app_id="com.acmebank.mobile"
+            ))
+            
+            # Seed active Gold License for demo client valid for 365 days
+            today = datetime.utcnow()
+            valid_from_str = today.strftime("%Y-%m-%d")
+            valid_to_str = (today + timedelta(days=365)).strftime("%Y-%m-%d")
+            expires_timestamp = (today + timedelta(days=365)).timestamp()
+            
+            db.add(DBLicense(
+                license_key="SHIELD-ACME-BANKING-GOLD-KEY",
+                app_id="com.acmebank.mobile",
+                client_username="client_demo",
+                tier=SubscriptionTier.GOLD,
+                valid_from=valid_from_str,
+                valid_to=valid_to_str,
+                expires_at=expires_timestamp,
+                is_active=True
+            ))
+
+        db.commit()
     finally:
         db.close()
 
@@ -99,16 +169,37 @@ def get_db():
     finally:
         db.close()
 
-app = FastAPI(title="AppShield Control Plane (v1.3)", description="FastAPI Security Backend with Dynamic Persistent Database (SQLite/Supabase)")
+app = FastAPI(
+    title="AppShield Enterprise Control Plane (v1.4)",
+    description="FastAPI B2B Portal Backend with Dual Role Auth, Sales Pipeline, Custom License Expiry Ranges & Gated SDK Downloads"
+)
 
-# Pydantic Models
-class ProvisionRequest(BaseModel):
-    app_name: str
+# Pydantic Schemas
+class LeadCreateRequest(BaseModel):
+    company_name: str
     email: str
+    phone: Optional[str] = None
+    package_tier: SubscriptionTier = SubscriptionTier.GOLD
+    notes: Optional[str] = None
 
-class UpgradeRequest(BaseModel):
-    license_key: str
-    target_tier: SubscriptionTier
+class LeadStatusUpdateRequest(BaseModel):
+    quote_id: int
+    status: LeadStatus
+    notes: Optional[str] = None
+
+class ClientProvisionRequest(BaseModel):
+    username: str
+    password: str
+    company_name: str
+    email: str
+    app_id: str
+    package_tier: SubscriptionTier = SubscriptionTier.GOLD
+    valid_from: str  # YYYY-MM-DD
+    valid_to: str    # YYYY-MM-DD
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 class ThreatEvent(BaseModel):
     app_id: str = Field(..., max_length=50, pattern=r"^[a-zA-Z0-9\._]+$")
@@ -117,21 +208,6 @@ class ThreatEvent(BaseModel):
     confidence: int = Field(..., ge=0, le=100)
     timestamp: int = Field(..., gt=1600000000000)
     nonce: str = Field(..., max_length=64)
-
-class LoginRequest(BaseModel):
-    username: str = Field(..., max_length=50)
-    password: str = Field(..., max_length=50)
-
-class TransactionRequest(BaseModel):
-    amount: float = Field(..., gt=0, lt=1000000)
-    recipient_account: str = Field(..., pattern=r"^\d{8,12}$")
-
-class URLCheckRequest(BaseModel):
-    url: str
-
-class CallVerifyRequest(BaseModel):
-    device_id: str
-    reported_caller_id: str
 
 nonce_cache = set()
 security = HTTPBearer()
@@ -154,45 +230,191 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+def get_admin_user(user: dict = Depends(get_current_user)):
+    if user.get("role") != UserRole.SUPER_ADMIN.value:
+        raise HTTPException(status_code=403, detail="Forbidden: Super Admin access required")
+    return user
+
+# ==============================================================================
+# Authentication & User Management
+# ==============================================================================
 @app.post("/v1/auth/login")
 async def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """Issues JWT token after verifying user in persistent DB."""
-    user = db.query(DBUser).filter(DBUser.username == request.username).first()
     pwd_hash = hashlib.sha256(request.password.encode()).hexdigest()
+    user = db.query(DBUser).filter(DBUser.username == request.username).first()
     
     if not user or user.password_hash != pwd_hash:
-        # Auto-provision on demo login if not existing
-        if request.username == "admin" and request.password in ["admin", "admin123"]:
-            role = "admin"
-        else:
-            role = "user"
-            db.add(DBUser(username=request.username, password_hash=pwd_hash, role=role))
-            db.commit()
-    else:
-        role = user.role
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account disabled by Admin")
 
     payload = {
-        "user_id": request.username,
-        "role": role,
-        "exp": time.time() + 3600
+        "user_id": user.username,
+        "role": user.role.value,
+        "company_name": user.company_name,
+        "app_id": user.app_id,
+        "exp": time.time() + 86400  # 24 hour token
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    return {"access_token": token, "token_type": "bearer"}
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role.value,
+        "username": user.username,
+        "company_name": user.company_name,
+        "app_id": user.app_id
+    }
 
-@app.post("/v1/users/{target_user_id}/transaction")
-async def execute_transaction(
-    target_user_id: str,
-    transaction: TransactionRequest,
-    user: dict = Depends(get_current_user)
-):
-    requester_id = user.get("user_id")
-    role = user.get("role")
+# ==============================================================================
+# Sales Pipeline: Leads, Demos & Quotations
+# ==============================================================================
+@app.post("/v1/quotes/request")
+async def request_quote(req: LeadCreateRequest, db: Session = Depends(get_db)):
+    lead = DBQuoteRequest(
+        company_name=req.company_name,
+        email=req.email,
+        phone=req.phone,
+        package_tier=req.package_tier,
+        status=LeadStatus.NEW,
+        notes=req.notes
+    )
+    db.add(lead)
+    db.commit()
+    db.refresh(lead)
+    return {"status": "success", "lead_id": lead.id, "message": "Quotation & Demo request received! Our enterprise sales team will contact you within 2 hours."}
+
+@app.get("/v1/admin/quotes")
+async def list_quotes(admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
+    leads = db.query(DBQuoteRequest).order_by(DBQuoteRequest.id.desc()).all()
+    return leads
+
+@app.post("/v1/admin/quotes/update-status")
+async def update_quote_status(req: LeadStatusUpdateRequest, admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
+    lead = db.query(DBQuoteRequest).filter(DBQuoteRequest.id == req.quote_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Quote request not found")
     
-    if requester_id != target_user_id and role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden: IDOR Blocked")
-        
-    return {"status": "success", "tx_id": "TXN991823", "amount": transaction.amount}
+    lead.status = req.status
+    if req.notes:
+        lead.notes = req.notes
+    db.commit()
+    return {"status": "success", "quote_id": lead.id, "new_status": lead.status}
 
+# ==============================================================================
+# Admin Client Provisioning (After PO Received)
+# ==============================================================================
+@app.post("/v1/admin/clients/provision")
+async def provision_client_account(req: ClientProvisionRequest, admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
+    # 1. Create client account if not exists
+    existing = db.query(DBUser).filter(DBUser.username == req.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    pwd_hash = hashlib.sha256(req.password.encode()).hexdigest()
+    client_user = DBUser(
+        username=req.username,
+        password_hash=pwd_hash,
+        role=UserRole.CLIENT,
+        company_name=req.company_name,
+        email=req.email,
+        app_id=req.app_id,
+        is_active=True
+    )
+    db.add(client_user)
+
+    # 2. Parse date range
+    try:
+        from_date = datetime.strptime(req.valid_from, "%Y-%m-%d")
+        to_date = datetime.strptime(req.valid_to, "%Y-%m-%d")
+        expires_epoch = to_date.timestamp()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    # 3. Create License Key
+    license_key = f"SHIELD-{req.company_name.upper().replace(' ', '')}-{req.package_tier.value}-{uuid.uuid4().hex[:8].upper()}"
+    license_obj = DBLicense(
+        license_key=license_key,
+        app_id=req.app_id,
+        client_username=req.username,
+        tier=req.package_tier,
+        valid_from=req.valid_from,
+        valid_to=req.valid_to,
+        expires_at=expires_epoch,
+        is_active=True
+    )
+    db.add(license_obj)
+    db.commit()
+
+    return {
+        "status": "success",
+        "username": req.username,
+        "company_name": req.company_name,
+        "app_id": req.app_id,
+        "license_key": license_key,
+        "valid_from": req.valid_from,
+        "valid_to": req.valid_to,
+        "tier": req.package_tier
+    }
+
+# ==============================================================================
+# Client Portal Data & Authorized Gated Downloads
+# ==============================================================================
+@app.get("/v1/client/dashboard")
+async def get_client_dashboard(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    username = user.get("user_id")
+    license_obj = db.query(DBLicense).filter(DBLicense.client_username == username, DBLicense.is_active == True).first()
+    
+    if not license_obj:
+        # Fallback query by app_id if username lookup misses
+        app_id = user.get("app_id")
+        license_obj = db.query(DBLicense).filter(DBLicense.app_id == app_id, DBLicense.is_active == True).first()
+
+    threats = []
+    if license_obj:
+        threats = db.query(DBThreatLog).filter(DBThreatLog.app_id == license_obj.app_id).order_by(DBThreatLog.id.desc()).limit(100).all()
+
+    return {
+        "username": username,
+        "company_name": user.get("company_name"),
+        "app_id": license_obj.app_id if license_obj else user.get("app_id", "com.example.app"),
+        "license": {
+            "license_key": license_obj.license_key if license_obj else "NO_ACTIVE_LICENSE",
+            "tier": license_obj.tier.value if license_obj else "TRIAL",
+            "valid_from": license_obj.valid_from if license_obj else "2026-01-01",
+            "valid_to": license_obj.valid_to if license_obj else "2026-12-31",
+            "features": TIER_FEATURES[license_obj.tier] if license_obj else TIER_FEATURES[SubscriptionTier.TRIAL]
+        },
+        "recent_threats": [
+            {
+                "id": t.id,
+                "threat": t.threat,
+                "device_id": t.device_id,
+                "confidence": t.confidence,
+                "timestamp": t.timestamp
+            } for t in threats
+        ]
+    }
+
+@app.get("/v1/client/download/sdk")
+async def download_sdk_binary(type: str = "aar", user: dict = Depends(get_current_user)):
+    """Gated SDK Binary Download — Requires valid Client JWT token."""
+    base_dir = "/Users/developdit/Documents/AppSheild/AppShield_Master_Source_v1_1_Hardened_FIXED/saas_release"
+    if type == "jar":
+        file_path = os.path.join(base_dir, "shield-gradle-plugin-v1.2.0.jar")
+        filename = "shield-gradle-plugin-v1.2.0.jar"
+    else:
+        file_path = os.path.join(base_dir, "shield-sdk-v1.2.0.aar")
+        filename = "shield-sdk-v1.2.0.aar"
+        
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="SDK binary file not found on server")
+        
+    return FileResponse(file_path, media_type="application/octet-stream", filename=filename)
+
+# ==============================================================================
+# Telemetry Ingestion (SDK Runtime)
+# ==============================================================================
 @app.post("/v1/telemetry")
 async def report_threat(
     request: Request,
@@ -200,7 +422,6 @@ async def report_threat(
     db: Session = Depends(get_db),
     x_appshield_signature: Optional[str] = Header(None)
 ):
-    # 0. Proof of Work (DDoS protection)
     x_appshield_pow = request.headers.get("x-appshield-pow-solution")
     if not x_appshield_pow:
         raise HTTPException(status_code=429, detail="Missing Proof of Work")
@@ -212,7 +433,6 @@ async def report_threat(
     if hashlib.sha256(f"{parts[0]}{parts[1]}".encode()).hexdigest() != parts[2]:
         raise HTTPException(status_code=429, detail="Invalid PoW")
 
-    # 1. Verify Signature
     if not x_appshield_signature:
         raise HTTPException(status_code=401, detail="Missing security signature")
 
@@ -220,7 +440,6 @@ async def report_threat(
     if not verify_hmac(body, x_appshield_signature):
          raise HTTPException(status_code=403, detail="Invalid signature")
 
-    # 2. Replay Protection
     current_time_ms = int(time.time() * 1000)
     if abs(current_time_ms - event.timestamp) > 300000:
         raise HTTPException(status_code=403, detail="Request expired")
@@ -230,7 +449,6 @@ async def report_threat(
         
     nonce_cache.add(event.nonce)
 
-    # 3. Store Threat in Persistent Database
     db_event = DBThreatLog(
         app_id=event.app_id,
         threat=event.threat,
@@ -243,46 +461,18 @@ async def report_threat(
     db.commit()
     db.refresh(db_event)
     
-    print(f"🚨 [THREAT SAVED TO DB] App: {event.app_id} | Threat: {event.threat}")
     return {"status": "accepted", "event_id": db_event.id}
-
-@app.post("/v1/license/provision")
-async def provision_license(req: ProvisionRequest, db: Session = Depends(get_db)):
-    app_id = f"com.{req.app_name.lower().replace(' ', '')}"
-    license_key = f"SHIELD-{uuid.uuid4().hex}"
-    expires_at = time.time() + (30 * 24 * 3600)
-    
-    new_license = DBLicense(
-        license_key=license_key,
-        app_id=app_id,
-        tier=SubscriptionTier.TRIAL,
-        expires_at=expires_at
-    )
-    db.add(new_license)
-    db.commit()
-    
-    return {"status": "success", "app_id": app_id, "license_key": license_key, "tier": "TRIAL"}
-
-@app.post("/v1/license/upgrade")
-async def upgrade_license(req: UpgradeRequest, db: Session = Depends(get_db)):
-    lic = db.query(DBLicense).filter(DBLicense.license_key == req.license_key).first()
-    if not lic:
-        raise HTTPException(status_code=404, detail="License not found")
-        
-    lic.tier = req.target_tier
-    db.commit()
-    return {"status": "success", "new_tier": req.target_tier}
 
 @app.get("/v1/license/validate")
 async def validate_license(license_key: str, app_id: str, db: Session = Depends(get_db)):
-    lic = db.query(DBLicense).filter(DBLicense.license_key == license_key).first()
+    lic = db.query(DBLicense).filter(DBLicense.license_key == license_key, DBLicense.is_active == True).first()
     
     if not lic:
         if license_key.startswith("SHIELD-"):
             tier = SubscriptionTier.GOLD
             expires_at = time.time() + (365 * 24 * 3600)
         else:
-            return {"valid": False, "reason": "Invalid or expired license"}
+            return {"valid": False, "reason": "Invalid or inactive license key"}
     else:
         if lic.app_id != app_id or lic.expires_at < time.time():
             return {"valid": False, "reason": "License mismatch or expired"}
@@ -298,63 +488,9 @@ async def validate_license(license_key: str, app_id: str, db: Session = Depends(
     policy_jwt = jwt.encode(policy_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return {"valid": True, "policy_token": policy_jwt}
 
-@app.get("/v1/threats", response_model=List[ThreatEvent])
-async def get_threats(db: Session = Depends(get_db)):
-    logs = db.query(DBThreatLog).all()
-    return [
-        ThreatEvent(
-            app_id=log.app_id,
-            threat=log.threat,
-            device_id=log.device_id,
-            confidence=log.confidence,
-            timestamp=log.timestamp,
-            nonce=log.nonce
-        ) for log in logs
-    ]
-
-@app.post("/v1/ai/voice-liveness")
-async def verify_voice_liveness(
-    device_id: str = Form(...),
-    challenge_phrase: str = Form(...),
-    audio_file: UploadFile = File(...),
-    x_appshield_signature: Optional[str] = Header(None)
-):
-    if not x_appshield_signature: raise HTTPException(status_code=401)
-    return {"liveness_score": 0.98, "status": "APPROVED", "ai_probability": 0.02}
-
-@app.post("/v1/ai/video-liveness")
-async def verify_video_liveness(
-    device_id: str = Form(...),
-    challenge_action: str = Form(...),
-    video_file: UploadFile = File(...),
-    x_appshield_signature: Optional[str] = Header(None)
-):
-    if not x_appshield_signature: raise HTTPException(status_code=401)
-    return {"liveness_score": 0.95, "status": "APPROVED", "ai_probability": 0.05}
-
-@app.post("/v1/ai/document-liveness")
-async def verify_document_liveness(
-    device_id: str = Form(...),
-    document_image: UploadFile = File(...),
-    x_appshield_signature: Optional[str] = Header(None)
-):
-    if not x_appshield_signature: raise HTTPException(status_code=401)
-    return {"authenticity_score": 0.96, "status": "APPROVED", "ai_probability": 0.04}
-
-@app.post("/v1/auth/secure-call-verify")
-async def verify_secure_call(
-    request: CallVerifyRequest,
-    x_appshield_signature: Optional[str] = Header(None)
-):
-    if not x_appshield_signature: raise HTTPException(status_code=401)
-    return {"verified": request.reported_caller_id.startswith("+1800")}
-
-@app.post("/v1/threat-intel/url-check")
-async def verify_url_reputation(request: URLCheckRequest):
-    malicious_keywords = ["secure-login", "bank-alert", "account-recovery"]
-    if any(k in request.url.lower() for k in malicious_keywords):
-        return {"status": "MALICIOUS", "confidence": 0.99}
-    return {"status": "SAFE", "confidence": 1.0}
+@app.get("/v1/admin/threats/all")
+async def get_all_threats(admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
+    return db.query(DBThreatLog).order_by(DBThreatLog.id.desc()).limit(200).all()
 
 if __name__ == "__main__":
     import uvicorn
