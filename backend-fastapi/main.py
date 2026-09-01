@@ -22,7 +22,7 @@ JWT_SECRET = "super_secret_jwt_key_for_appshield_enterprise_v1"
 JWT_ALGORITHM = "HS256"
 
 # Dynamic DB URL: Defaults to Supabase PostgreSQL, falls back to local SQLite if unreachable
-DEFAULT_SUPABASE_URL = "postgresql://postgres:gghghgghgg%40%23%29@db.kuoshydjkhwaemgmelea.supabase.co:5432/postgres"
+DEFAULT_SUPABASE_URL = "postgresql://postgres:Dev%40San%23Vih%40Sun%242895%29@db.kuoshydjkhwaemgmelea.supabase.co:5432/postgres"
 RAW_DB_URL = os.getenv("DATABASE_URL", DEFAULT_SUPABASE_URL)
 if RAW_DB_URL.startswith("postgres://"):
     RAW_DB_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
