@@ -561,6 +561,203 @@ async def validate_license(
 async def get_all_threats(admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
     return db.query(DBThreatLog).order_by(DBThreatLog.id.desc()).limit(200).all()
 
+# ==============================================================================
+# Admin: Registered Users Management
+# ==============================================================================
+@app.get("/v1/admin/users")
+async def list_all_users(admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
+    """Returns all registered client users with their license info."""
+    users = db.query(DBUser).filter(DBUser.role == UserRole.CLIENT).order_by(DBUser.created_at.desc()).all()
+    result = []
+    now = time.time()
+    for user in users:
+        lic = db.query(DBLicense).filter(
+            DBLicense.client_username == user.username,
+            DBLicense.is_active == True
+        ).first()
+        threat_count = db.query(DBThreatLog).filter(DBThreatLog.app_id == user.app_id).count() if user.app_id else 0
+        days_remaining = None
+        if lic:
+            days_remaining = max(0, int((lic.expires_at - now) / 86400))
+        result.append({
+            "username": user.username,
+            "company_name": user.company_name,
+            "email": user.email,
+            "app_id": user.app_id,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "license": {
+                "license_key": lic.license_key if lic else None,
+                "tier": lic.tier.value if lic else None,
+                "valid_from": lic.valid_from if lic else None,
+                "valid_to": lic.valid_to if lic else None,
+                "expires_at": lic.expires_at if lic else None,
+                "days_remaining": days_remaining,
+                "is_expired": (lic.expires_at < now) if lic else None,
+                "is_expiring_soon": (0 < days_remaining <= 30) if days_remaining is not None else False,
+            } if lic else None,
+            "total_threats_detected": threat_count
+        })
+    return result
+
+@app.post("/v1/admin/users/toggle-status")
+async def toggle_user_status(
+    payload: dict,
+    admin: dict = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Enable or disable a client account."""
+    username = payload.get("username")
+    if not username:
+        raise HTTPException(status_code=400, detail="username required")
+    user = db.query(DBUser).filter(DBUser.username == username, DBUser.role == UserRole.CLIENT).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Client user not found")
+    user.is_active = not user.is_active
+    db.commit()
+    return {"username": username, "is_active": user.is_active, "status": "updated"}
+
+# ==============================================================================
+# Admin: License Analytics (Expiry Dashboard)
+# ==============================================================================
+@app.get("/v1/admin/licenses/analytics")
+async def license_analytics(admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
+    """Returns license counts segmented by expiry status."""
+    now = time.time()
+    soon_threshold = now + (30 * 86400)
+    long_threshold = now + (180 * 86400)
+
+    licenses = db.query(DBLicense).filter(DBLicense.is_active == True).all()
+
+    expired, expiring_soon, long_validity, healthy = [], [], [], []
+
+    for lic in licenses:
+        user = db.query(DBUser).filter(DBUser.username == lic.client_username).first()
+        threat_count = db.query(DBThreatLog).filter(DBThreatLog.app_id == lic.app_id).count()
+        entry = {
+            "license_key": lic.license_key,
+            "client_username": lic.client_username,
+            "company_name": user.company_name if user else "Unknown",
+            "app_id": lic.app_id,
+            "tier": lic.tier.value,
+            "valid_from": lic.valid_from,
+            "valid_to": lic.valid_to,
+            "expires_at": lic.expires_at,
+            "days_remaining": max(0, int((lic.expires_at - now) / 86400)),
+            "threats_detected": threat_count
+        }
+        if lic.expires_at < now:
+            expired.append(entry)
+        elif lic.expires_at <= soon_threshold:
+            expiring_soon.append(entry)
+        elif lic.expires_at >= long_threshold:
+            long_validity.append(entry)
+        else:
+            healthy.append(entry)
+
+    return {
+        "summary": {
+            "total": len(licenses),
+            "expired": len(expired),
+            "expiring_soon": len(expiring_soon),
+            "healthy": len(healthy),
+            "long_validity": len(long_validity)
+        },
+        "expired": expired,
+        "expiring_soon": expiring_soon,
+        "healthy": healthy,
+        "long_validity": long_validity
+    }
+
+# ==============================================================================
+# Admin: Attack Analytics — Overall & Client-wise
+# ==============================================================================
+@app.get("/v1/admin/analytics/overview")
+async def attack_analytics_overview(admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
+    """Returns overall platform attack detection statistics."""
+    from sqlalchemy import func
+
+    total_detected = db.query(DBThreatLog).count()
+
+    # Count by threat type
+    threat_type_counts = db.query(
+        DBThreatLog.threat,
+        func.count(DBThreatLog.id).label("count")
+    ).group_by(DBThreatLog.threat).order_by(func.count(DBThreatLog.id).desc()).all()
+
+    # Count by app_id
+    app_counts = db.query(
+        DBThreatLog.app_id,
+        func.count(DBThreatLog.id).label("count")
+    ).group_by(DBThreatLog.app_id).order_by(func.count(DBThreatLog.id).desc()).all()
+
+    # Confidence distribution: high ≥80 = defended, medium 50-79 = warned, low <50 = missed
+    defended = db.query(DBThreatLog).filter(DBThreatLog.confidence >= 80).count()
+    warned = db.query(DBThreatLog).filter(DBThreatLog.confidence >= 50, DBThreatLog.confidence < 80).count()
+    missed = db.query(DBThreatLog).filter(DBThreatLog.confidence < 50).count()
+
+    return {
+        "total_detected": total_detected,
+        "defended": defended,
+        "warned": warned,
+        "missed": missed,
+        "defense_rate_pct": round((defended / total_detected * 100), 1) if total_detected > 0 else 0,
+        "threat_type_breakdown": [{"threat": r.threat, "count": r.count} for r in threat_type_counts],
+        "app_breakdown": [{"app_id": r.app_id, "count": r.count} for r in app_counts]
+    }
+
+@app.get("/v1/admin/analytics/client-wise")
+async def attack_analytics_client_wise(admin: dict = Depends(get_admin_user), db: Session = Depends(get_db)):
+    """Returns per-client attack detection breakdown."""
+    from sqlalchemy import func
+
+    clients = db.query(DBUser).filter(DBUser.role == UserRole.CLIENT).all()
+    result = []
+
+    for client in clients:
+        if not client.app_id:
+            continue
+        total = db.query(DBThreatLog).filter(DBThreatLog.app_id == client.app_id).count()
+        defended = db.query(DBThreatLog).filter(
+            DBThreatLog.app_id == client.app_id, DBThreatLog.confidence >= 80
+        ).count()
+        warned = db.query(DBThreatLog).filter(
+            DBThreatLog.app_id == client.app_id,
+            DBThreatLog.confidence >= 50, DBThreatLog.confidence < 80
+        ).count()
+        missed = db.query(DBThreatLog).filter(
+            DBThreatLog.app_id == client.app_id, DBThreatLog.confidence < 50
+        ).count()
+
+        # Top threat type for this client
+        top_threat = db.query(
+            DBThreatLog.threat,
+            func.count(DBThreatLog.id).label("cnt")
+        ).filter(DBThreatLog.app_id == client.app_id).group_by(
+            DBThreatLog.threat
+        ).order_by(func.count(DBThreatLog.id).desc()).first()
+
+        lic = db.query(DBLicense).filter(
+            DBLicense.client_username == client.username,
+            DBLicense.is_active == True
+        ).first()
+
+        result.append({
+            "username": client.username,
+            "company_name": client.company_name,
+            "app_id": client.app_id,
+            "tier": lic.tier.value if lic else "NONE",
+            "total_detected": total,
+            "defended": defended,
+            "warned": warned,
+            "missed": missed,
+            "defense_rate_pct": round((defended / total * 100), 1) if total > 0 else 0,
+            "top_threat": top_threat.threat if top_threat else "None"
+        })
+
+    result.sort(key=lambda x: x["total_detected"], reverse=True)
+    return result
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

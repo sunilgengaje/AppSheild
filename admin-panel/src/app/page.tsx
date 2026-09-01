@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 
 type UserRole = 'PUBLIC' | 'SUPER_ADMIN' | 'CLIENT';
-type SubTab = 'PIPELINE' | 'PROVISION' | 'GLOBAL_THREATS' | 'CLIENT_OVERVIEW' | 'CLIENT_SDK' | 'CLIENT_DOCS' | 'CLIENT_THREATS';
+type SubTab = 'PIPELINE' | 'PROVISION' | 'USERS' | 'LICENSE_ANALYTICS' | 'ANALYTICS_OVERVIEW' | 'ANALYTICS_CLIENTS' | 'GLOBAL_THREATS' | 'CLIENT_OVERVIEW' | 'CLIENT_SDK' | 'CLIENT_DOCS' | 'CLIENT_THREATS';
 
 export default function AppShieldEnterprisePortal() {
   const [role, setRole] = useState<UserRole>('PUBLIC');
@@ -68,6 +68,16 @@ export default function AppShieldEnterprisePortal() {
 
   const API_BASE = 'https://appshield-backend-lupg.onrender.com';
 
+  // ── New admin state ────────────────────────────────────────────────────────
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [licenseAnalytics, setLicenseAnalytics] = useState<any>(null);
+  const [licenseSubTab, setLicenseSubTab] = useState<'expiring_soon'|'expired'|'healthy'|'long_validity'>('expiring_soon');
+  const [analyticsOverview, setAnalyticsOverview] = useState<any>(null);
+  const [analyticsClients, setAnalyticsClients] = useState<any[]>([]);
+  const [analyticsView, setAnalyticsView] = useState<'table'|'pie'>('table');
+  const [clientAnalyticsView, setClientAnalyticsView] = useState<'table'|'pie'>('table');
+  // ──────────────────────────────────────────────────────────────────────────
+
   // Handle Login with smooth server + demo fallback
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,6 +136,50 @@ export default function AppShieldEnterprisePortal() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  // Fetch Users List
+  const fetchUsers = async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/users`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setUsersList(await res.json());
+    } catch (e) {}
+  };
+
+  // Fetch License Analytics
+  const fetchLicenseAnalytics = async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/licenses/analytics`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setLicenseAnalytics(await res.json());
+    } catch (e) {}
+  };
+
+  // Fetch Attack Analytics Overview
+  const fetchAnalyticsOverview = async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/analytics/overview`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setAnalyticsOverview(await res.json());
+    } catch (e) {}
+  };
+
+  // Fetch Client-wise Analytics
+  const fetchAnalyticsClients = async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/analytics/client-wise`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setAnalyticsClients(await res.json());
+    } catch (e) {}
+  };
+
+  // Toggle user active/inactive
+  const handleToggleUser = async (username: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/users/toggle-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ username })
+      });
+      if (res.ok) fetchUsers(authToken);
+    } catch (e) {}
   };
 
   // Submit Public Quote Request
@@ -418,22 +472,30 @@ export default function AppShieldEnterprisePortal() {
       {role === 'SUPER_ADMIN' && (
         <div className="max-w-7xl mx-auto px-6 py-8">
           {/* Sub Navigation */}
-          <div className="flex gap-4 border-b border-slate-800 pb-4 mb-8">
-            <button
-              onClick={() => setActiveTab('PIPELINE')}
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition ${
-                activeTab === 'PIPELINE' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-              }`}
-            >
+          <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-4 mb-8">
+            <button onClick={() => setActiveTab('PIPELINE')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'PIPELINE' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
               💼 Sales Pipeline ({leadsList.length})
             </button>
-            <button
-              onClick={() => setActiveTab('PROVISION')}
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition ${
-                activeTab === 'PROVISION' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              🔑 Client Provisioner & License Creator
+            <button onClick={() => setActiveTab('PROVISION')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'PROVISION' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+              🔑 Provision Client
+            </button>
+            <button onClick={() => { setActiveTab('USERS'); fetchUsers(authToken); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'USERS' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+              👤 Registered Users
+            </button>
+            <button onClick={() => { setActiveTab('LICENSE_ANALYTICS'); fetchLicenseAnalytics(authToken); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'LICENSE_ANALYTICS' ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+              📋 License Analytics
+            </button>
+            <button onClick={() => { setActiveTab('ANALYTICS_OVERVIEW'); fetchAnalyticsOverview(authToken); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'ANALYTICS_OVERVIEW' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+              📊 Attack Analytics
+            </button>
+            <button onClick={() => { setActiveTab('ANALYTICS_CLIENTS'); fetchAnalyticsClients(authToken); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'ANALYTICS_CLIENTS' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+              🏢 Client-wise Analytics
             </button>
           </div>
 
@@ -642,6 +704,226 @@ export default function AppShieldEnterprisePortal() {
               </form>
             </div>
           )}
+
+          {/* ── USERS TAB ── */}
+          {activeTab === 'USERS' && (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold">Registered Client Accounts</h2>
+                <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1.5 rounded-full">{usersList.length} clients</span>
+              </div>
+              {usersList.length === 0 ? (
+                <p className="text-slate-500 text-center py-12">No clients registered yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                      <tr>{['Company','Username','Email','App ID','Tier','Valid To','Days Left','Threats','Status','Action'].map(h=><th key={h} className="py-3 px-3 whitespace-nowrap">{h}</th>)}</tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {usersList.map((u:any) => {
+                        const daysLeft = u.license?.days_remaining ?? null;
+                        const isExpired = u.license?.is_expired;
+                        const isSoon = u.license?.is_expiring_soon;
+                        return (
+                          <tr key={u.username} className="hover:bg-slate-800/40 transition">
+                            <td className="py-3 px-3 font-semibold text-white whitespace-nowrap">{u.company_name}</td>
+                            <td className="py-3 px-3 font-mono text-indigo-300">{u.username}</td>
+                            <td className="py-3 px-3 text-slate-400">{u.email}</td>
+                            <td className="py-3 px-3 font-mono text-slate-400 text-[10px]">{u.app_id}</td>
+                            <td className="py-3 px-3"><span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${u.license?.tier==='GOLD'?'bg-amber-500/20 text-amber-400':u.license?.tier==='SILVER'?'bg-slate-400/20 text-slate-300':u.license?.tier==='BRONZE'?'bg-orange-500/20 text-orange-400':'bg-slate-700 text-slate-400'}`}>{u.license?.tier??'NONE'}</span></td>
+                            <td className="py-3 px-3 text-slate-400 whitespace-nowrap">{u.license?.valid_to??'—'}</td>
+                            <td className="py-3 px-3"><span className={`font-bold ${isExpired?'text-rose-400':isSoon?'text-amber-400':'text-emerald-400'}`}>{daysLeft===null?'—':isExpired?'EXPIRED':`${daysLeft}d`}</span></td>
+                            <td className="py-3 px-3 text-center font-mono text-indigo-300">{u.total_threats_detected}</td>
+                            <td className="py-3 px-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${u.is_active?'bg-emerald-500/20 text-emerald-400':'bg-rose-500/20 text-rose-400'}`}>{u.is_active?'ACTIVE':'DISABLED'}</span></td>
+                            <td className="py-3 px-3"><button onClick={()=>handleToggleUser(u.username)} className={`px-3 py-1 rounded-lg text-[10px] font-bold transition ${u.is_active?'bg-rose-500/20 text-rose-400 hover:bg-rose-500/40':'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/40'}`}>{u.is_active?'Disable':'Enable'}</button></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── LICENSE ANALYTICS TAB ── */}
+          {activeTab === 'LICENSE_ANALYTICS' && (
+            <div className="space-y-6">
+              {!licenseAnalytics ? (
+                <div className="text-center py-20 text-slate-500">Loading license analytics...</div>
+              ) : (<>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[{label:'Total Licenses',value:licenseAnalytics.summary.total,color:'text-indigo-400',bg:'bg-indigo-500/10 border-indigo-500/30'},{label:'🚨 Expired',value:licenseAnalytics.summary.expired,color:'text-rose-400',bg:'bg-rose-500/10 border-rose-500/30'},{label:'⚠️ Expiring ≤30d',value:licenseAnalytics.summary.expiring_soon,color:'text-amber-400',bg:'bg-amber-500/10 border-amber-500/30'},{label:'✅ Healthy',value:licenseAnalytics.summary.healthy+licenseAnalytics.summary.long_validity,color:'text-emerald-400',bg:'bg-emerald-500/10 border-emerald-500/30'}].map(c=>(
+                    <div key={c.label} className={`${c.bg} border rounded-2xl p-5 text-center`}><div className={`text-3xl font-black ${c.color}`}>{c.value}</div><div className="text-xs text-slate-400 mt-1">{c.label}</div></div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(['expiring_soon','expired','healthy','long_validity'] as const).map(key=>{
+                    const labels:{[k:string]:string}={expiring_soon:'⚠️ Expiring Soon',expired:'🚨 Expired',healthy:'✅ Healthy',long_validity:'📅 Long Validity (>180d)'};
+                    return <button key={key} onClick={()=>setLicenseSubTab(key)} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${licenseSubTab===key?'bg-indigo-600 text-white':'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>{labels[key]} ({(licenseAnalytics[key]??[]).length})</button>;
+                  })}
+                </div>
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                      <tr>{['Company','App ID','Tier','Valid From','Valid To','Days Left','Threats'].map(h=><th key={h} className="py-3 px-4 whitespace-nowrap">{h}</th>)}</tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {(licenseAnalytics[licenseSubTab]??[]).length===0?<tr><td colSpan={7} className="py-8 text-center text-slate-500">No licenses in this category.</td></tr>:(licenseAnalytics[licenseSubTab]??[]).map((lic:any)=>(
+                        <tr key={lic.license_key} className="hover:bg-slate-800/40 transition">
+                          <td className="py-3 px-4 font-semibold text-white">{lic.company_name}</td>
+                          <td className="py-3 px-4 font-mono text-slate-400 text-[10px]">{lic.app_id}</td>
+                          <td className="py-3 px-4"><span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400">{lic.tier}</span></td>
+                          <td className="py-3 px-4 text-slate-400">{lic.valid_from}</td>
+                          <td className="py-3 px-4 text-slate-400">{lic.valid_to}</td>
+                          <td className="py-3 px-4"><span className={`font-bold ${lic.days_remaining===0?'text-rose-400':lic.days_remaining<=30?'text-amber-400':'text-emerald-400'}`}>{lic.days_remaining===0?'EXPIRED':`${lic.days_remaining}d`}</span></td>
+                          <td className="py-3 px-4 font-mono text-indigo-300">{lic.threats_detected}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>)}
+            </div>
+          )}
+
+          {/* ── ATTACK ANALYTICS OVERVIEW ── */}
+          {activeTab === 'ANALYTICS_OVERVIEW' && (
+            <div className="space-y-6">
+              {!analyticsOverview ? (
+                <div className="text-center py-20 text-slate-500">Loading analytics...</div>
+              ) : (<>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[{label:'Total Detected',value:analyticsOverview.total_detected,color:'text-indigo-400',bg:'bg-indigo-500/10 border-indigo-500/30'},{label:'🛡️ Defended (≥80%)',value:analyticsOverview.defended,color:'text-emerald-400',bg:'bg-emerald-500/10 border-emerald-500/30'},{label:'⚠️ Warned (50-79%)',value:analyticsOverview.warned,color:'text-amber-400',bg:'bg-amber-500/10 border-amber-500/30'},{label:'❌ Missed (<50%)',value:analyticsOverview.missed,color:'text-rose-400',bg:'bg-rose-500/10 border-rose-500/30'}].map(c=>(
+                    <div key={c.label} className={`${c.bg} border rounded-2xl p-5 text-center`}><div className={`text-3xl font-black ${c.color}`}>{c.value}</div><div className="text-xs text-slate-400 mt-1">{c.label}</div></div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={()=>setAnalyticsView('table')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${analyticsView==='table'?'bg-indigo-600 text-white':'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>📋 Table View</button>
+                  <button onClick={()=>setAnalyticsView('pie')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${analyticsView==='pie'?'bg-indigo-600 text-white':'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>🥧 Pie Chart</button>
+                </div>
+                {analyticsView==='pie'?(
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 flex flex-col md:flex-row gap-12 items-center justify-center">
+                    {(()=>{
+                      const tot=analyticsOverview.total_detected||1;
+                      const segs=[{label:'Defended',value:analyticsOverview.defended,color:'#10b981'},{label:'Warned',value:analyticsOverview.warned,color:'#f59e0b'},{label:'Missed',value:analyticsOverview.missed,color:'#f43f5e'}];
+                      let cum=0;const r=80,cx=100,cy=100;
+                      return(
+                        <div className="flex flex-col items-center gap-4">
+                          <p className="text-xs text-slate-400 font-semibold">Defense Distribution</p>
+                          <svg width="200" height="200" viewBox="0 0 200 200">
+                            {segs.map((s,i)=>{const pct=s.value/tot;const sa=cum*2*Math.PI-Math.PI/2;cum+=pct;const ea=cum*2*Math.PI-Math.PI/2;const x1=cx+r*Math.cos(sa),y1=cy+r*Math.sin(sa),x2=cx+r*Math.cos(ea),y2=cy+r*Math.sin(ea);return pct>0?<path key={i} d={`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${pct>0.5?1:0} 1 ${x2} ${y2} Z`} fill={s.color} opacity={0.85}/>:null;})}
+                            <circle cx={cx} cy={cy} r={48} fill="#0f172a"/>
+                            <text x={cx} y={cy-6} textAnchor="middle" fill="white" fontSize="20" fontWeight="bold">{analyticsOverview.defense_rate_pct}%</text>
+                            <text x={cx} y={cy+14} textAnchor="middle" fill="#94a3b8" fontSize="9">Defense Rate</text>
+                          </svg>
+                          <div className="flex flex-col gap-2">{segs.map(s=><div key={s.label} className="flex items-center gap-2 text-xs"><span className="w-3 h-3 rounded-sm inline-block" style={{background:s.color}}></span><span className="text-slate-300">{s.label}: <strong>{s.value}</strong></span></div>)}</div>
+                        </div>
+                      );
+                    })()}
+                    {analyticsOverview.threat_type_breakdown.length>0&&(()=>{
+                      const tot=analyticsOverview.total_detected||1;
+                      const CLRS=['#6366f1','#10b981','#f59e0b','#f43f5e','#a78bfa','#34d399','#fb923c','#38bdf8'];
+                      let cum=0;const r=80,cx=100,cy=100;const items=analyticsOverview.threat_type_breakdown.slice(0,8);
+                      return(
+                        <div className="flex flex-col items-center gap-4">
+                          <p className="text-xs text-slate-400 font-semibold">Attack Type Breakdown</p>
+                          <svg width="200" height="200" viewBox="0 0 200 200">
+                            {items.map((item:any,i:number)=>{const pct=item.count/tot;const sa=cum*2*Math.PI-Math.PI/2;cum+=pct;const ea=cum*2*Math.PI-Math.PI/2;const x1=cx+r*Math.cos(sa),y1=cy+r*Math.sin(sa),x2=cx+r*Math.cos(ea),y2=cy+r*Math.sin(ea);return pct>0?<path key={i} d={`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${pct>0.5?1:0} 1 ${x2} ${y2} Z`} fill={CLRS[i%CLRS.length]} opacity={0.85}/>:null;})}
+                            <circle cx={cx} cy={cy} r={48} fill="#0f172a"/>
+                            <text x={cx} y={cy+4} textAnchor="middle" fill="#94a3b8" fontSize="9">By Type</text>
+                          </svg>
+                          <div className="grid grid-cols-2 gap-1">{items.map((item:any,i:number)=><div key={item.threat} className="flex items-center gap-1.5 text-[10px]"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{background:CLRS[i%CLRS.length]}}></span><span className="text-slate-400 truncate">{item.threat}: {item.count}</span></div>)}</div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ):(
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 overflow-x-auto">
+                    <h3 className="text-sm font-bold text-slate-300 mb-4">Attack Type Breakdown — Full Platform</h3>
+                    <table className="w-full text-left text-xs text-slate-300">
+                      <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                        <tr>{['Rank','Attack Type','Detected','% Share','Frequency Bar'].map(h=><th key={h} className="py-3 px-4 whitespace-nowrap">{h}</th>)}</tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {analyticsOverview.threat_type_breakdown.length===0?<tr><td colSpan={5} className="py-8 text-center text-slate-500">No events yet.</td></tr>:analyticsOverview.threat_type_breakdown.map((item:any,i:number)=>{
+                          const pct=analyticsOverview.total_detected>0?+(item.count/analyticsOverview.total_detected*100).toFixed(1):0;
+                          return(<tr key={item.threat} className="hover:bg-slate-800/40 transition">
+                            <td className="py-3 px-4 text-slate-500">#{i+1}</td>
+                            <td className="py-3 px-4 font-mono text-indigo-300">{item.threat}</td>
+                            <td className="py-3 px-4 font-bold text-white">{item.count}</td>
+                            <td className="py-3 px-4 text-slate-400">{pct}%</td>
+                            <td className="py-3 px-4 w-40"><div className="bg-slate-800 rounded-full h-1.5"><div className="bg-indigo-500 h-1.5 rounded-full" style={{width:`${pct}%`}}></div></div></td>
+                          </tr>);
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>)}
+            </div>
+          )}
+
+          {/* ── CLIENT-WISE ANALYTICS TAB ── */}
+          {activeTab === 'ANALYTICS_CLIENTS' && (
+            <div className="space-y-6">
+              <div className="flex gap-2">
+                <button onClick={()=>setClientAnalyticsView('table')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${clientAnalyticsView==='table'?'bg-emerald-600 text-white':'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>📋 Table View</button>
+                <button onClick={()=>setClientAnalyticsView('pie')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${clientAnalyticsView==='pie'?'bg-emerald-600 text-white':'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>🥧 Pie Chart</button>
+              </div>
+              {clientAnalyticsView==='pie'&&analyticsClients.length>0&&(()=>{
+                const tot=analyticsClients.reduce((s:number,c:any)=>s+c.total_detected,0)||1;
+                const CLRS=['#6366f1','#10b981','#f59e0b','#f43f5e','#a78bfa','#34d399','#fb923c','#38bdf8'];
+                let cum=0;const r=90,cx=110,cy=110;
+                return(<div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 flex flex-col md:flex-row gap-10 items-center">
+                  <svg width="220" height="220" viewBox="0 0 220 220">
+                    {analyticsClients.map((c:any,i:number)=>{const pct=c.total_detected/tot;const sa=cum*2*Math.PI-Math.PI/2;cum+=pct;const ea=cum*2*Math.PI-Math.PI/2;const x1=cx+r*Math.cos(sa),y1=cy+r*Math.sin(sa),x2=cx+r*Math.cos(ea),y2=cy+r*Math.sin(ea);return pct>0?<path key={i} d={`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${pct>0.5?1:0} 1 ${x2} ${y2} Z`} fill={CLRS[i%CLRS.length]} opacity={0.85}/>:null;})}
+                    <circle cx={cx} cy={cy} r={54} fill="#0f172a"/>
+                    <text x={cx} y={cy+4} textAnchor="middle" fill="#94a3b8" fontSize="9">By Client</text>
+                  </svg>
+                  <div className="flex flex-col gap-2">
+                    {analyticsClients.map((c:any,i:number)=>(
+                      <div key={c.username} className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{background:CLRS[i%CLRS.length]}}></span>
+                        <span className="text-slate-300 font-semibold">{c.company_name}</span>
+                        <span className="text-slate-500">— {c.total_detected} attacks · {c.defense_rate_pct}% defended</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>);
+              })()}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 overflow-x-auto">
+                <h3 className="text-sm font-bold text-slate-300 mb-4">Client-wise Attack Defense Report</h3>
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                    <tr>{['Company','App ID','Tier','Detected','🛡️ Defended','⚠️ Warned','❌ Missed','Defense Rate','Top Threat'].map(h=><th key={h} className="py-3 px-3 whitespace-nowrap">{h}</th>)}</tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {analyticsClients.length===0?<tr><td colSpan={9} className="py-8 text-center text-slate-500">No clients with threat data yet.</td></tr>:analyticsClients.map((c:any)=>(
+                      <tr key={c.username} className="hover:bg-slate-800/40 transition">
+                        <td className="py-3 px-3 font-semibold text-white whitespace-nowrap">{c.company_name}</td>
+                        <td className="py-3 px-3 font-mono text-slate-400 text-[10px]">{c.app_id}</td>
+                        <td className="py-3 px-3"><span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400">{c.tier}</span></td>
+                        <td className="py-3 px-3 font-bold text-indigo-300">{c.total_detected}</td>
+                        <td className="py-3 px-3 text-emerald-400 font-bold">{c.defended}</td>
+                        <td className="py-3 px-3 text-amber-400 font-bold">{c.warned}</td>
+                        <td className="py-3 px-3 text-rose-400 font-bold">{c.missed}</td>
+                        <td className="py-3 px-3">
+                          <div className="flex items-center gap-2">
+                            <div className="bg-slate-800 rounded-full h-1.5 w-20"><div className={`h-1.5 rounded-full ${c.defense_rate_pct>=80?'bg-emerald-500':c.defense_rate_pct>=50?'bg-amber-500':'bg-rose-500'}`} style={{width:`${c.defense_rate_pct}%`}}></div></div>
+                            <span className={`font-bold ${c.defense_rate_pct>=80?'text-emerald-400':c.defense_rate_pct>=50?'text-amber-400':'text-rose-400'}`}>{c.defense_rate_pct}%</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[10px] text-indigo-300">{c.top_threat}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
         </div>
       )}
 
