@@ -14,8 +14,8 @@ export default function AppShieldEnterprisePortal() {
   // Login Modal State
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginRole, setLoginRole] = useState<'SUPER_ADMIN' | 'CLIENT'>('SUPER_ADMIN');
-  const [loginUsername, setLoginUsername] = useState('admin');
-  const [loginPassword, setLoginPassword] = useState('admin123');
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
   // Lead / Quote Form Modal
@@ -94,41 +94,8 @@ export default function AppShieldEnterprisePortal() {
         }
         return;
       }
-    } catch (err) {
-      console.log('Backend waking up, switching to demo mode session');
-    }
-
-    // Client-side Demo Fallback if server is sleeping
-    if (loginUsername === 'admin' && loginPassword === 'admin123') {
-      setAuthToken('demo-admin-token');
-      setUserInfo({ username: 'admin', company_name: 'AppShield Security HQ', app_id: 'com.appshield.admin' });
-      setRole('SUPER_ADMIN');
-      setActiveTab('PIPELINE');
-      setShowLoginModal(false);
-    } else if (loginUsername === 'client_demo' && loginPassword === 'client123') {
-      setAuthToken('demo-client-token');
-      setUserInfo({ username: 'client_demo', company_name: 'Acme Banking Corp', app_id: 'com.acmebank.mobile' });
-      setRole('CLIENT');
-      setActiveTab('CLIENT_OVERVIEW');
-      setShowLoginModal(false);
-      setClientData({
-        company_name: 'Acme Banking Corp',
-        app_id: 'com.acmebank.mobile',
-        license: {
-          license_key: 'SHIELD-ACME-BANKING-GOLD-KEY',
-          tier: 'GOLD',
-          valid_from: '2026-01-01',
-          valid_to: '2027-01-01',
-          features: ['Root', 'Emulator', 'Debug', 'Frida', 'HookingSystem', 'SuspiciousOverlay', 'SMSInterception', 'Automation', 'BehaviourAnomaly', 'VishingRisk', 'NFCRelaySensorAnomaly', 'NFCRelayTimingAnomaly']
-        },
-        recent_threats: [
-          { id: 101, threat: 'FridaMemoryScan', device_id: 'DEV-88192-ANDROID', confidence: 100, timestamp: Date.now() - 3600000 },
-          { id: 102, threat: 'RootSuBinaryPath', device_id: 'DEV-99120-ANDROID', confidence: 95, timestamp: Date.now() - 7200000 }
-        ]
-      });
-    } else {
-      setLoginError('Invalid credentials. Use admin / admin123 or client_demo / client123');
-    }
+    // If server is unreachable, show a clear error — never expose credentials
+    setLoginError('Unable to connect to the authentication server. Please try again.');
   };
 
   // Fetch Sales Pipeline Leads
@@ -339,8 +306,8 @@ export default function AppShieldEnterprisePortal() {
               <button
                 onClick={() => {
                   setLoginRole('SUPER_ADMIN');
-                  setLoginUsername('admin');
-                  setLoginPassword('admin123');
+                  setLoginUsername('');
+                  setLoginPassword('');
                   setShowLoginModal(true);
                 }}
                 className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-8 py-4 rounded-2xl font-bold transition text-base"
@@ -933,8 +900,8 @@ export default function AppShieldEnterprisePortal() {
                 type="button"
                 onClick={() => {
                   setLoginRole('SUPER_ADMIN');
-                  setLoginUsername('admin');
-                  setLoginPassword('admin123');
+                  setLoginUsername('');
+                  setLoginPassword('');
                 }}
                 className={`py-2 rounded-xl text-xs font-bold transition ${
                   loginRole === 'SUPER_ADMIN' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
@@ -946,8 +913,8 @@ export default function AppShieldEnterprisePortal() {
                 type="button"
                 onClick={() => {
                   setLoginRole('CLIENT');
-                  setLoginUsername('client_demo');
-                  setLoginPassword('client123');
+                  setLoginUsername('');
+                  setLoginPassword('');
                 }}
                 className={`py-2 rounded-xl text-xs font-bold transition ${
                   loginRole === 'CLIENT' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'

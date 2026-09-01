@@ -150,10 +150,12 @@ Base.metadata.create_all(bind=engine)
 def seed_db():
     db = SessionLocal()
     try:
-        # ISD FIX H-02: Use bcrypt hashing for seeded accounts
-        admin_user = db.query(DBUser).filter(DBUser.username == "admin").first()
-        if not admin_user:
-            admin_pwd = pwd_context.hash("admin123")
+        # ISD: Seed password loaded from environment variable — never hardcoded
+        admin_seed_pwd = os.environ.get("ADMIN_SEED_PASSWORD", "")
+        if not admin_seed_pwd:
+            print("⚠️  ADMIN_SEED_PASSWORD env var not set. Admin account not seeded.")
+        else:
+            admin_pwd = pwd_context.hash(admin_seed_pwd)
             db.add(DBUser(
                 username="admin",
                 password_hash=admin_pwd,
@@ -163,9 +165,12 @@ def seed_db():
                 app_id="com.appshield.admin"
             ))
         
-        client_demo = db.query(DBUser).filter(DBUser.username == "client_demo").first()
-        if not client_demo:
-            client_pwd = pwd_context.hash("client123")
+        # ISD: Seed password loaded from environment variable — never hardcoded
+        client_seed_pwd = os.environ.get("CLIENT_SEED_PASSWORD", "")
+        if not client_seed_pwd:
+            print("⚠️  CLIENT_SEED_PASSWORD env var not set. Demo client account not seeded.")
+        else:
+            client_pwd = pwd_context.hash(client_seed_pwd)
             db.add(DBUser(
                 username="client_demo",
                 password_hash=client_pwd,
@@ -173,22 +178,6 @@ def seed_db():
                 company_name="Acme Banking Corp",
                 email="security@acmebank.com",
                 app_id="com.acmebank.mobile"
-            ))
-            
-            today = datetime.utcnow()
-            valid_from_str = today.strftime("%Y-%m-%d")
-            valid_to_str = (today + timedelta(days=365)).strftime("%Y-%m-%d")
-            expires_timestamp = (today + timedelta(days=365)).timestamp()
-            
-            db.add(DBLicense(
-                license_key="SHIELD-ACME-BANKING-GOLD-KEY",
-                app_id="com.acmebank.mobile",
-                client_username="client_demo",
-                tier=SubscriptionTier.GOLD,
-                valid_from=valid_from_str,
-                valid_to=valid_to_str,
-                expires_at=expires_timestamp,
-                is_active=True
             ))
 
         db.commit()
