@@ -136,6 +136,31 @@ export default function AppShieldEnterprisePortal() {
     link.click();
     document.body.removeChild(link);
   };
+  // Secret admin detection via URL query (?admin=true / ?mode=admin) or keyboard shortcut (Ctrl+Shift+A)
+  const [isAdminModeRequested, setIsAdminModeRequested] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      const hash = window.location.hash;
+      const path = window.location.pathname;
+      if (search.includes('admin') || search.includes('mode=admin') || path.includes('/admin') || hash.includes('admin')) {
+        setIsAdminModeRequested(true);
+        setLoginRole('SUPER_ADMIN');
+        setShowLoginModal(true);
+      }
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.ctrlKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+          e.preventDefault();
+          setIsAdminModeRequested(true);
+          setLoginRole('SUPER_ADMIN');
+          setShowLoginModal(true);
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, []);
   // ──────────────────────────────────────────────────────────────────────────
 
   // Handle Login with smooth server + demo fallback
@@ -587,14 +612,14 @@ export default function AppShieldEnterprisePortal() {
               </button>
               <button
                 onClick={() => {
-                  setLoginRole('SUPER_ADMIN');
+                  setLoginRole('CLIENT');
                   setLoginUsername('');
                   setLoginPassword('');
                   setShowLoginModal(true);
                 }}
                 className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-8 py-4 rounded-2xl font-bold transition text-base"
               >
-                Sign In to Portal ➔
+                Client Sign In ➔
               </button>
             </div>
           </div>
@@ -2167,38 +2192,44 @@ export default function AppShieldEnterprisePortal() {
               ✕
             </button>
 
-            <h3 className="text-2xl font-bold text-white mb-2">Portal Authentication</h3>
-            <p className="text-slate-400 text-xs mb-6">Select your portal mode and sign in.</p>
+            <h3 className="text-2xl font-bold text-white mb-2">
+              {loginRole === 'SUPER_ADMIN' ? '👑 Super Admin Portal' : '💼 Client Portal Sign In'}
+            </h3>
+            <p className="text-slate-400 text-xs mb-6">
+              {loginRole === 'SUPER_ADMIN' ? 'Sign in to access Enterprise Control Plane & Admin Management.' : 'Sign in to access your authorized AppShield SDK binaries & attack telemetry.'}
+            </p>
 
-            {/* Role Selector Toggle */}
-            <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1.5 rounded-2xl mb-6 border border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginRole('SUPER_ADMIN');
-                  setLoginUsername('');
-                  setLoginPassword('');
-                }}
-                className={`py-2 rounded-xl text-xs font-bold transition ${
-                  loginRole === 'SUPER_ADMIN' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                👑 Super Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginRole('CLIENT');
-                  setLoginUsername('');
-                  setLoginPassword('');
-                }}
-                className={`py-2 rounded-xl text-xs font-bold transition ${
-                  loginRole === 'CLIENT' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                💼 Client Portal
-              </button>
-            </div>
+            {/* Role Selector Toggle (Only shown when secret admin mode is activated) */}
+            {(isAdminModeRequested || loginRole === 'SUPER_ADMIN') && (
+              <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1.5 rounded-2xl mb-6 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginRole('SUPER_ADMIN');
+                    setLoginUsername('');
+                    setLoginPassword('');
+                  }}
+                  className={`py-2 rounded-xl text-xs font-bold transition ${
+                    loginRole === 'SUPER_ADMIN' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  👑 Super Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginRole('CLIENT');
+                    setLoginUsername('');
+                    setLoginPassword('');
+                  }}
+                  className={`py-2 rounded-xl text-xs font-bold transition ${
+                    loginRole === 'CLIENT' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  💼 Client Portal
+                </button>
+              </div>
+            )}
 
             {loginError && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 p-3 rounded-xl text-xs mb-4">{loginError}</div>}
 
