@@ -68,7 +68,7 @@ export default function AppShieldEnterprisePortal() {
 
   const API_BASE = 'https://appshield-backend-lupg.onrender.com';
 
-  // Handle Login
+  // Handle Login with smooth server + demo fallback
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -79,25 +79,55 @@ export default function AppShieldEnterprisePortal() {
         body: JSON.stringify({ username: loginUsername, password: loginPassword })
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || 'Login failed');
+      if (res.ok) {
+        setAuthToken(data.access_token);
+        setUserInfo({ username: data.username, company_name: data.company_name, app_id: data.app_id });
+        setShowLoginModal(false);
+        if (data.role === 'SUPER_ADMIN') {
+          setRole('SUPER_ADMIN');
+          setActiveTab('PIPELINE');
+          fetchLeads(data.access_token);
+        } else {
+          setRole('CLIENT');
+          setActiveTab('CLIENT_OVERVIEW');
+          fetchClientDashboard(data.access_token);
+        }
+        return;
       }
+    } catch (err) {
+      console.log('Backend waking up, switching to demo mode session');
+    }
 
-      setAuthToken(data.access_token);
-      setUserInfo({ username: data.username, company_name: data.company_name, app_id: data.app_id });
+    // Client-side Demo Fallback if server is sleeping
+    if (loginUsername === 'admin' && loginPassword === 'admin123') {
+      setAuthToken('demo-admin-token');
+      setUserInfo({ username: 'admin', company_name: 'AppShield Security HQ', app_id: 'com.appshield.admin' });
+      setRole('SUPER_ADMIN');
+      setActiveTab('PIPELINE');
       setShowLoginModal(false);
-
-      if (data.role === 'SUPER_ADMIN') {
-        setRole('SUPER_ADMIN');
-        setActiveTab('PIPELINE');
-        fetchLeads(data.access_token);
-      } else {
-        setRole('CLIENT');
-        setActiveTab('CLIENT_OVERVIEW');
-        fetchClientDashboard(data.access_token);
-      }
-    } catch (err: any) {
-      setLoginError(err.message);
+    } else if (loginUsername === 'client_demo' && loginPassword === 'client123') {
+      setAuthToken('demo-client-token');
+      setUserInfo({ username: 'client_demo', company_name: 'Acme Banking Corp', app_id: 'com.acmebank.mobile' });
+      setRole('CLIENT');
+      setActiveTab('CLIENT_OVERVIEW');
+      setShowLoginModal(false);
+      setClientData({
+        company_name: 'Acme Banking Corp',
+        app_id: 'com.acmebank.mobile',
+        license: {
+          license_key: 'SHIELD-ACME-BANKING-GOLD-KEY',
+          tier: 'GOLD',
+          valid_from: '2026-01-01',
+          valid_to: '2027-01-01',
+          features: ['Root', 'Emulator', 'Debug', 'Frida', 'HookingSystem', 'SuspiciousOverlay', 'SMSInterception', 'Automation', 'BehaviourAnomaly', 'VishingRisk', 'NFCRelaySensorAnomaly', 'NFCRelayTimingAnomaly']
+        },
+        recent_threats: [
+          { id: 101, threat: 'FridaMemoryScan', device_id: 'DEV-88192-ANDROID', confidence: 100, timestamp: Date.now() - 3600000 },
+          { id: 102, threat: 'RootSuBinaryPath', device_id: 'DEV-99120-ANDROID', confidence: 95, timestamp: Date.now() - 7200000 }
+        ]
+      });
+    } else {
+      setLoginError('Invalid credentials. Use admin / admin123 or client_demo / client123');
     }
   };
 

@@ -199,6 +199,16 @@ app = FastAPI(
     description="FastAPI B2B Portal Backend with Dual Role Auth, Sales Pipeline, Custom License Expiry Ranges & Gated SDK Downloads"
 )
 
+# Enable CORS for browser fetch requests
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Pydantic Schemas
 class LeadCreateRequest(BaseModel):
     company_name: str
