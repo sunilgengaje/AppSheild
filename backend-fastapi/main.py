@@ -21,18 +21,27 @@ SECRET_KEY = b"REPLACE_WITH_PROVISIONED_SECRET"
 JWT_SECRET = "super_secret_jwt_key_for_appshield_enterprise_v1"
 JWT_ALGORITHM = "HS256"
 
-# Dynamic DB URL: Defaults to Supabase PostgreSQL, falls back to local SQLite if unreachable
-DEFAULT_SUPABASE_URL = "postgresql://postgres:Dev%40San%23Vih%40Sun%242895%29@db.kuoshydjkhwaemgmelea.supabase.co:5432/postgres"
-RAW_DB_URL = os.getenv("DATABASE_URL", DEFAULT_SUPABASE_URL)
+# Dynamic DB URL: Uses Supabase Transaction Pooler (ap-northeast-1 port 6543 for IPv4 compatibility), with safe SQLite fallback
+SUPABASE_POOLER_URL = "postgresql://postgres.kuoshydjkhwaemgmelea:Dev%40San%23Vih%40Sun%242895%29@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
+RAW_DB_URL = os.getenv("DATABASE_URL", SUPABASE_POOLER_URL)
+
 if RAW_DB_URL.startswith("postgres://"):
     RAW_DB_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
 
-DATABASE_URL = RAW_DB_URL
-
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-else:
-    engine = create_engine(DATABASE_URL)
+# Safe DB initialization with automatic SQLite fallback if cloud DB is unreachable
+try:
+    if RAW_DB_URL.startswith("sqlite"):
+        engine = create_engine(RAW_DB_URL, connect_args={"check_same_thread": False})
+    else:
+        engine = create_engine(RAW_DB_URL, connect_args={"connect_timeout": 5})
+    
+    # Test connection
+    with engine.connect() as conn:
+        print("✅ Successfully connected to Primary Database!")
+except Exception as db_err:
+    print(f"⚠️ Primary DB unreachable ({db_err}). Auto-falling back to local SQLite database...")
+    RAW_DB_URL = "sqlite:///./appshield.db"
+    engine = create_engine(RAW_DB_URL, connect_args={"check_same_thread": False})
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
