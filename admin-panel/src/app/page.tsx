@@ -64,6 +64,7 @@ export default function AppShieldEnterprisePortal() {
     package_tier: string;
     status: string;
     notes?: string;
+    created_at?: string;
   }>>([]);
 
   const API_BASE = 'https://appshield-backend-lupg.onrender.com';
@@ -109,6 +110,32 @@ export default function AppShieldEnterprisePortal() {
   const [currentPwd, setCurrentPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [changePwdMsg, setChangePwdMsg] = useState('');
+  // Lead Detail Modal state
+  const [selectedLeadModal, setSelectedLeadModal] = useState<any>(null);
+
+  // Export Leads to CSV
+  const handleExportLeadsCSV = () => {
+    if (leadsList.length === 0) return;
+    const headers = ['ID', 'Company Name', 'Email', 'Phone', 'Package Tier', 'Status', 'Notes', 'Created At'];
+    const rows = leadsList.map(l => [
+      l.id,
+      `"${(l.company_name || '').replace(/"/g, '""')}"`,
+      `"${(l.email || '').replace(/"/g, '""')}"`,
+      `"${(l.phone || '').replace(/"/g, '""')}"`,
+      l.package_tier,
+      l.status,
+      `"${(l.notes || '').replace(/"/g, '""')}"`,
+      l.created_at || ''
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `appshield_demo_requests_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   // ──────────────────────────────────────────────────────────────────────────
 
   // Handle Login with smooth server + demo fallback
@@ -542,13 +569,13 @@ export default function AppShieldEnterprisePortal() {
             <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl"></div>
 
             <span className="inline-block bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-widest mb-6">
-              Enterprise Mobile RASP & Fraud Defense
+              Enterprise Mobile RASP &amp; Fraud Defense
             </span>
             <h1 className="text-4xl md:text-6xl font-black tracking-tight max-w-4xl mx-auto leading-tight mb-6">
               Protect Your Mobile Apps Against Frida, Root, and AI Banking Fraud
             </h1>
             <p className="text-slate-400 text-lg max-w-2xl mx-auto mb-10 leading-relaxed">
-              Zero-touch Kotlin & C++ Security Engine for Android. Turn key hardware security, automated license management, and real-time cloud threat intelligence.
+              Zero-touch Security Engine for Android &amp; iOS. Hardware-level tamper defense, automated license control, and real-time cloud threat intelligence.
             </p>
 
             <div className="flex flex-wrap justify-center gap-4">
@@ -556,7 +583,7 @@ export default function AppShieldEnterprisePortal() {
                 onClick={() => setShowQuoteModal(true)}
                 className="bg-gradient-to-r from-indigo-600 to-emerald-500 hover:scale-105 transition transform px-8 py-4 rounded-2xl font-bold text-white shadow-xl shadow-indigo-500/20 text-base"
               >
-                Schedule Demo & Get Quote ➔
+                Schedule Demo &amp; Get Quote ➔
               </button>
               <button
                 onClick={() => {
@@ -567,8 +594,168 @@ export default function AppShieldEnterprisePortal() {
                 }}
                 className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-8 py-4 rounded-2xl font-bold transition text-base"
               >
-                Super Admin Portal Demo
+                Sign In to Portal ➔
               </button>
+            </div>
+          </div>
+
+          {/* EXECUTIVE SECURITY FEATURE SHOWCASE */}
+          <div className="mb-20 space-y-12">
+            <div className="text-center max-w-3xl mx-auto">
+              <span className="text-emerald-400 font-mono text-xs font-bold uppercase tracking-widest block mb-2">Comprehensive Defense Suite</span>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-4">What Type of Security AppShield Provides</h2>
+              <p className="text-slate-400 text-sm leading-relaxed">
+                AppShield embeds continuous, self-defending protection inside your mobile applications. It neutralizes threats on end-user devices in real time without compromising application speed or user experience.
+              </p>
+            </div>
+
+            {/* 6 Key Security Modules (Descriptive & Non-Technical) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {/* Module 1 */}
+              <div className="bg-slate-900/80 border border-slate-800 hover:border-indigo-500/50 rounded-3xl p-8 transition duration-300 flex flex-col justify-between group shadow-xl hover:shadow-indigo-500/10">
+                <div>
+                  <div className="w-14 h-14 bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 rounded-2xl flex items-center justify-center text-2xl font-bold mb-6 group-hover:scale-110 transition">
+                    🛡️
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">Anti-Tamper &amp; Code Protection</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed mb-4">
+                    Prevents hackers from modifying your app code, inserting malicious memory hooks, or using reverse-engineering tools to expose private APIs and business logic.
+                  </p>
+                </div>
+                <div className="border-t border-slate-800/80 pt-4 flex justify-between items-center text-[11px]">
+                  <span className="text-slate-500 font-mono">Module Coverage</span>
+                  <span className="text-indigo-400 font-bold">Memory &amp; API Integrity</span>
+                </div>
+              </div>
+
+              {/* Module 2 */}
+              <div className="bg-slate-900/80 border border-slate-800 hover:border-emerald-500/50 rounded-3xl p-8 transition duration-300 flex flex-col justify-between group shadow-xl hover:shadow-emerald-500/10">
+                <div>
+                  <div className="w-14 h-14 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-2xl flex items-center justify-center text-2xl font-bold mb-6 group-hover:scale-110 transition">
+                    🔓
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">Root &amp; Compromised OS Defense</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed mb-4">
+                    Detects if an end-user device has been rooted, unlocked, or modified with custom operating systems, ensuring sensitive financial transactions never execute in dangerous environments.
+                  </p>
+                </div>
+                <div className="border-t border-slate-800/80 pt-4 flex justify-between items-center text-[11px]">
+                  <span className="text-slate-500 font-mono">Module Coverage</span>
+                  <span className="text-emerald-400 font-bold">OS &amp; Environment Guard</span>
+                </div>
+              </div>
+
+              {/* Module 3 */}
+              <div className="bg-slate-900/80 border border-slate-800 hover:border-amber-500/50 rounded-3xl p-8 transition duration-300 flex flex-col justify-between group shadow-xl hover:shadow-amber-500/10">
+                <div>
+                  <div className="w-14 h-14 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-2xl flex items-center justify-center text-2xl font-bold mb-6 group-hover:scale-110 transition">
+                    🤖
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">AI Behavior &amp; Bot Guard</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed mb-4">
+                    Analyzes human interaction speed, swipe gestures, and pressure patterns in real time to instantly block automated credential-stuffing bots and automated fraud scripts.
+                  </p>
+                </div>
+                <div className="border-t border-slate-800/80 pt-4 flex justify-between items-center text-[11px]">
+                  <span className="text-slate-500 font-mono">Module Coverage</span>
+                  <span className="text-amber-400 font-bold">Biometric &amp; Touch AI</span>
+                </div>
+              </div>
+
+              {/* Module 4 */}
+              <div className="bg-slate-900/80 border border-slate-800 hover:border-sky-500/50 rounded-3xl p-8 transition duration-300 flex flex-col justify-between group shadow-xl hover:shadow-sky-500/10">
+                <div>
+                  <div className="w-14 h-14 bg-sky-500/10 border border-sky-500/30 text-sky-400 rounded-2xl flex items-center justify-center text-2xl font-bold mb-6 group-hover:scale-110 transition">
+                    👁️
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">Anti-Overlay &amp; Screen Hijack</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed mb-4">
+                    Blocks invisible transparent overlay windows and screen-recording malware from capturing user passwords, credit card numbers, or OTP codes while your app is open.
+                  </p>
+                </div>
+                <div className="border-t border-slate-800/80 pt-4 flex justify-between items-center text-[11px]">
+                  <span className="text-slate-500 font-mono">Module Coverage</span>
+                  <span className="text-sky-400 font-bold">Screen &amp; Input Privacy</span>
+                </div>
+              </div>
+
+              {/* Module 5 */}
+              <div className="bg-slate-900/80 border border-slate-800 hover:border-rose-500/50 rounded-3xl p-8 transition duration-300 flex flex-col justify-between group shadow-xl hover:shadow-rose-500/10">
+                <div>
+                  <div className="w-14 h-14 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-2xl flex items-center justify-center text-2xl font-bold mb-6 group-hover:scale-110 transition">
+                    📞
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">Vishing &amp; Remote Access Defense</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed mb-4">
+                    Detects active phone calls accompanied by unauthorized remote screen-sharing tools to protect elderly and non-tech customers from social engineering financial fraud.
+                  </p>
+                </div>
+                <div className="border-t border-slate-800/80 pt-4 flex justify-between items-center text-[11px]">
+                  <span className="text-slate-500 font-mono">Module Coverage</span>
+                  <span className="text-rose-400 font-bold">Call &amp; Remote Access Fraud</span>
+                </div>
+              </div>
+
+              {/* Module 6 */}
+              <div className="bg-slate-900/80 border border-slate-800 hover:border-violet-500/50 rounded-3xl p-8 transition duration-300 flex flex-col justify-between group shadow-xl hover:shadow-violet-500/10">
+                <div>
+                  <div className="w-14 h-14 bg-violet-500/10 border border-violet-500/30 text-violet-400 rounded-2xl flex items-center justify-center text-2xl font-bold mb-6 group-hover:scale-110 transition">
+                    💳
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">NFC Tap &amp; Payment Guard</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed mb-4">
+                    Monitors sensor timing anomalies and distance measurement data to safeguard contactless tap-to-pay transactions against NFC relay fraud attacks.
+                  </p>
+                </div>
+                <div className="border-t border-slate-800/80 pt-4 flex justify-between items-center text-[11px]">
+                  <span className="text-slate-500 font-mono">Module Coverage</span>
+                  <span className="text-violet-400 font-bold">Contactless Payments</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3-Step Visual Protection Workflow */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-10 mt-12">
+              <h3 className="text-2xl font-bold text-white text-center mb-8">How AppShield Self-Protection Works</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 relative">
+                  <div className="text-3xl font-black text-indigo-500 mb-3">01</div>
+                  <h4 className="text-base font-bold text-white mb-2">Seamless SDK Integration</h4>
+                  <p className="text-slate-400 text-xs leading-relaxed">
+                    Add our lightweight zero-touch engine into your mobile application build. No complex server modifications required.
+                  </p>
+                </div>
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 relative">
+                  <div className="text-3xl font-black text-emerald-500 mb-3">02</div>
+                  <h4 className="text-base font-bold text-white mb-2">Real-Time On-Device Defense</h4>
+                  <p className="text-slate-400 text-xs leading-relaxed">
+                    The engine evaluates 50+ hardware and software security signals every time the app launches or processes a transaction.
+                  </p>
+                </div>
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 relative">
+                  <div className="text-3xl font-black text-amber-500 mb-3">03</div>
+                  <h4 className="text-base font-bold text-white mb-2">Cloud Intelligence &amp; Telemetry</h4>
+                  <p className="text-slate-400 text-xs leading-relaxed">
+                    Threat logs are reported instantly to your enterprise security dashboard with real-time defense rate analytics.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Compliance & Trust Badges */}
+            <div className="flex flex-wrap justify-center items-center gap-8 py-6 border-y border-slate-800/80">
+              <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
+                <span className="text-emerald-400 text-base">✓</span> OWASP MASVS Compliant
+              </div>
+              <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
+                <span className="text-emerald-400 text-base">✓</span> PCI-DSS Mobile Security Standard
+              </div>
+              <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
+                <span className="text-emerald-400 text-base">✓</span> Zero PII Data Retention
+              </div>
+              <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
+                <span className="text-emerald-400 text-base">✓</span> 99.99% Uptime Cloud SLA
+              </div>
             </div>
           </div>
 
@@ -712,7 +899,24 @@ export default function AppShieldEnterprisePortal() {
           {/* PIPELINE TAB */}
           {activeTab === 'PIPELINE' && (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
-              <h2 className="text-2xl font-bold mb-6">Quotation & Demo Request Pipeline</h2>
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-1">Quotation &amp; Demo Request Pipeline</h2>
+                  <p className="text-xs text-slate-400">Track and convert prospective enterprise mobile security leads.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1.5 rounded-full">{leadsList.length} leads total</span>
+                  {leadsList.length > 0 && (
+                    <button
+                      onClick={handleExportLeadsCSV}
+                      className="bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                    >
+                      📥 Export Leads CSV
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
@@ -736,8 +940,14 @@ export default function AppShieldEnterprisePortal() {
                       leadsList.map((lead) => (
                         <tr key={lead.id} className="hover:bg-slate-850/50 transition">
                           <td className="p-4 font-mono font-bold text-indigo-400">#{lead.id}</td>
-                          <td className="p-4 font-semibold text-white">{lead.company_name}</td>
-                          <td className="p-4">{lead.email} {lead.phone && `• ${lead.phone}`}</td>
+                          <td className="p-4">
+                            <span className="font-semibold text-white block">{lead.company_name}</span>
+                            {lead.notes && <span className="text-[10px] text-slate-400 line-clamp-1 italic">{lead.notes}</span>}
+                          </td>
+                          <td className="p-4">
+                            <span className="block text-slate-200">{lead.email}</span>
+                            {lead.phone && <span className="block text-[10px] text-slate-500 font-mono">{lead.phone}</span>}
+                          </td>
                           <td className="p-4">
                             <span className="bg-amber-500/10 border border-amber-500/30 text-amber-400 px-3 py-1 rounded-full font-bold text-[10px]">
                               {lead.package_tier}
@@ -755,7 +965,13 @@ export default function AppShieldEnterprisePortal() {
                             </span>
                           </td>
                           <td className="p-4">
-                            <div className="flex gap-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setSelectedLeadModal(lead)}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg text-[10px] font-bold transition"
+                              >
+                                👁️ Details
+                              </button>
                               {lead.status === 'NEW' && (
                                 <button
                                   onClick={() => handleUpdateLeadStatus(lead.id, 'DEMO_SCHEDULED')}
@@ -2151,6 +2367,70 @@ export default function AppShieldEnterprisePortal() {
                 Update Password in Supabase ➔
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* LEAD DETAILS MODAL */}
+      {selectedLeadModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-lg w-full shadow-2xl relative space-y-6">
+            <button
+              onClick={() => setSelectedLeadModal(null)}
+              className="absolute top-4 right-4 text-slate-500 hover:text-white text-xl"
+            >
+              ✕
+            </button>
+
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div>
+                <span className="text-[10px] font-mono text-indigo-400 font-bold uppercase tracking-wider block">Lead Record #{selectedLeadModal.id}</span>
+                <h3 className="text-2xl font-bold text-white">{selectedLeadModal.company_name}</h3>
+              </div>
+              <span className="bg-amber-500/10 border border-amber-500/30 text-amber-400 px-3 py-1 rounded-full text-xs font-bold">
+                {selectedLeadModal.package_tier} TIER
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Work Email</span>
+                <span className="text-slate-200 font-semibold select-all block break-all">{selectedLeadModal.email}</span>
+              </div>
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Phone Number</span>
+                <span className="text-slate-200 font-semibold font-mono block">{selectedLeadModal.phone || 'Not provided'}</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs">
+              <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Special Requirements / Notes</span>
+              <p className="text-slate-300 leading-relaxed font-sans italic">
+                {selectedLeadModal.notes || 'No custom notes submitted with this request.'}
+              </p>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex justify-between items-center text-xs">
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase font-bold">Pipeline Status</span>
+                <span className="text-emerald-400 font-bold">{selectedLeadModal.status}</span>
+              </div>
+              <button
+                onClick={() => {
+                  setProvCompany(selectedLeadModal.company_name);
+                  setProvEmail(selectedLeadModal.email);
+                  setProvTier(selectedLeadModal.package_tier);
+                  setProvAppId(`com.${selectedLeadModal.company_name.toLowerCase().replace(/[^a-z0-9]/g, '')}.app`);
+                  setProvUsername(selectedLeadModal.company_name.toLowerCase().replace(/[^a-z0-9]/g, '') + '_admin');
+                  setProvPassword('ClientPass123!');
+                  setSelectedLeadModal(null);
+                  setActiveTab('PROVISION');
+                }}
+                className="bg-gradient-to-r from-emerald-500 to-indigo-600 hover:opacity-90 text-white font-bold py-2.5 px-5 rounded-xl text-xs transition shadow-lg"
+              >
+                Provision Client Account ➔
+              </button>
+            </div>
           </div>
         </div>
       )}
