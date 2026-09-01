@@ -107,6 +107,7 @@ export default function AppShieldEnterprisePortal() {
   // ──────────────────────────────────────────────────────────────────────────
 
   // Handle Login with smooth server + demo fallback
+  // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -132,8 +133,10 @@ export default function AppShieldEnterprisePortal() {
         }
         return;
       }
-    // If server is unreachable, show a clear error — never expose credentials
-    setLoginError('Unable to connect to the authentication server. Please try again.');
+      setLoginError(data.detail || 'Invalid credentials');
+    } catch (err) {
+      setLoginError('Unable to connect to the authentication server. Please try again.');
+    }
   };
 
   // Fetch Sales Pipeline Leads
@@ -195,6 +198,18 @@ export default function AppShieldEnterprisePortal() {
     try {
       const res = await fetch(`${API_BASE}/v1/admin/analytics/client-wise`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) setAnalyticsClients(await res.json());
+    } catch (e) {}
+  };
+
+  // Toggle user active/inactive
+  const handleToggleUser = async (username: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/users/toggle-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ username })
+      });
+      if (res.ok) fetchUsers(authToken);
     } catch (e) {}
   };
 
@@ -1077,6 +1092,9 @@ export default function AppShieldEnterprisePortal() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
           {/* ── ADMIN BILLING & INVOICES TAB ── */}
           {activeTab === 'BILLING' && (
             <div className="space-y-8">
@@ -1705,6 +1723,8 @@ export default function AppShieldEnterprisePortal() {
                 </table>
               </div>
             </div>
+          )}
+
           {/* CLIENT BILLING & PAYMENTS TAB */}
           {activeTab === 'CLIENT_BILLING' && (
             <div className="space-y-8">
