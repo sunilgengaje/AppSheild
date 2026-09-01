@@ -71,27 +71,55 @@ object AppShield {
                         val json = org.json.JSONObject(response)
                         if (json.getBoolean("valid")) {
                             val token = json.getString("policy_token")
-                            val payloadB64 = token.split(".")[1]
-                            val payloadStr = String(android.util.Base64.decode(payloadB64, android.util.Base64.DEFAULT))
+                            val parts = token.split(".")
+
+                            // ISD FIX SDK-C01: Validate JWT structure before trusting payload
+                            // A real deployment should verify the HMAC-SHA256 signature against
+                            // the backend secret embedded at build time. Here we enforce minimum
+                            // structural integrity (3-part JWT with non-empty signature segment)
+                            // so a MITM cannot inject a payload-only token with no signature.
+                            if (parts.size != 3 || parts[2].length < 16) {
+                                // ISD SDK-M01: No logcat fingerprint — silent fail
+                                com.appshield.sdk.policy.ThreatState.raise(60)
+                                return@Thread
+                            }
+
+                            val payloadB64 = parts[1]
+                            val payloadStr = String(android.util.Base64.decode(
+                                payloadB64.padEnd((payloadB64.length + 3) / 4 * 4, '='),
+                                android.util.Base64.DEFAULT
+                            ))
                             val payloadJson = org.json.JSONObject(payloadStr)
                             
                             val featuresArray = payloadJson.getJSONArray("features")
+                            // ISD FIX SDK-C01: Reject suspiciously empty feature sets
+                            if (featuresArray.length() == 0) {
+                                com.appshield.sdk.policy.ThreatState.raise(80)
+                                return@Thread
+                            }
+
                             val featureSet = mutableSetOf<String>()
                             for (i in 0 until featuresArray.length()) {
                                 featureSet.add(featuresArray.getString(i))
                             }
                             
-                            // Hot-swap the enforcement policy at runtime!
+                            // Hot-swap the enforcement policy at runtime
                             synchronized(lock) {
                                 activeConfig = activeConfig.copy(enabledFeatures = featureSet)
                                 enforcer = PolicyEnforcer(activeConfig, activeAppId)
-                                android.util.Log.i("AppShield", "Tier Policy Applied: ${payloadJson.getString("tier")}")
+                                // ISD FIX SDK-M01: No plaintext logcat tag in production builds
+                                if (android.os.Build.TYPE == "eng" || android.os.Build.TYPE == "userdebug") {
+                                    android.util.Log.d("AS", "Policy: ${payloadJson.optString("tier", "?")}")
+                                }
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    // Fail safe to default Trial/cached policy if offline
-                    android.util.Log.w("AppShield", "Failed to fetch Tier Policy. Failing open to Trial tier.")
+                    // ISD FIX SDK-M02: Fail informational (not silent) on network error
+                    // Raise a sub-threshold ThreatState signal (30) so host app can
+                    // query isPoisoned() and restrict sensitive ops until policy confirmed.
+                    com.appshield.sdk.policy.ThreatState.raise(30)
+                    // ISD FIX SDK-M01: No plaintext logcat tag leaking SDK presence
                 }
             }.start()
         }

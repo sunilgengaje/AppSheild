@@ -108,10 +108,16 @@ object TelemetryReporter {
     }
 
     /**
-     * Legacy overload for callers that do not have a Context available.
-     * Uses a software-fallback key derived from a stored random salt.
-     * Prefer the Context-bearing overload whenever possible.
+     * ISD FIX SDK-L01: @Deprecated — this overload uses an ephemeral random HMAC key
+     * per call, meaning the backend CANNOT verify the signature and will silently
+     * reject every event. Migrate to reportThreat(context, ...) which uses the
+     * Android Keystore TEE-backed key (hardware-bound, persistent, verifiable).
      */
+    @Deprecated(
+        message = "Use reportThreat(context, appId, threatType, deviceId) instead. " +
+            "This overload generates an unverifiable ephemeral HMAC key and events will be rejected by the backend.",
+        replaceWith = ReplaceWith("reportThreat(context, appId, threatType, deviceId, confidence, pinnedCertSha256)")
+    )
     fun reportThreat(
         appId: String,
         threatType: String,
@@ -162,6 +168,13 @@ object TelemetryReporter {
         }.start()
     }
 
+    /**
+     * ISD FIX SDK-L01: @Deprecated — same issue as no-Context reportThreat().
+     * Migrate to a Context-bearing batch endpoint when available.
+     */
+    @Deprecated(
+        message = "This overload uses an ephemeral HMAC key and batch events will be rejected by the backend."
+    )
     fun reportBatch(
         appId: String,
         deviceId: String,
