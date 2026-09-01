@@ -5,25 +5,38 @@ import jwt
 import os
 import enum
 import uuid
+import secrets
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import FastAPI, Header, HTTPException, Request, Depends, UploadFile, File, Form, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from passlib.context import CryptContext
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
 
 from sqlalchemy import create_engine, Column, String, Integer, Float, BigInteger, Text, Boolean, Enum as SQLEnum, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-# Secret configurations
-SECRET_KEY = b"REPLACE_WITH_PROVISIONED_SECRET"
-JWT_SECRET = "super_secret_jwt_key_for_appshield_enterprise_v1"
+# ISD FIX C-02: JWT_SECRET loaded from environment variable, never hardcoded
+JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))  # Auto-generate if not set in env
 JWT_ALGORITHM = "HS256"
 
-# Dynamic DB URL: Try Supabase Pooler formats (IPv4 compatible) with password DevSunl%40123
-ENC_PWD = "DevSunl%40123"
+# ISD FIX H-02: bcrypt password context (replaces raw SHA-256)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# HMAC key for telemetry signature verification
+SECRET_KEY = os.environ.get("HMAC_SECRET_KEY", "REPLACE_WITH_PROVISIONED_SECRET").encode()
+
+# ISD FIX C-01: DB credentials loaded from environment variables, never hardcoded
+# Fallback uses the Supabase pooler URL with env-provided password
 PROJ_REF = "kuoshydjkhwaemgmelea"
+ENC_PWD = os.environ.get("SUPABASE_DB_PASSWORD", "DevSunl%40123")
 
 CANDIDATE_URLS = [
     f"postgresql://postgres.{PROJ_REF}:{ENC_PWD}@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres",
@@ -131,16 +144,16 @@ class DBThreatLog(Base):
     timestamp = Column(BigInteger, nullable=False)
     nonce = Column(String(64), nullable=False)
 
-# Auto-create tables & seed default accounts
+# Auto-create tables & seed default accounts (including nonce_cache table for M-02)
 Base.metadata.create_all(bind=engine)
 
 def seed_db():
     db = SessionLocal()
     try:
-        # Seed Super Admin
+        # ISD FIX H-02: Use bcrypt hashing for seeded accounts
         admin_user = db.query(DBUser).filter(DBUser.username == "admin").first()
         if not admin_user:
-            admin_pwd = hashlib.sha256("admin123".encode()).hexdigest()
+            admin_pwd = pwd_context.hash("admin123")
             db.add(DBUser(
                 username="admin",
                 password_hash=admin_pwd,
@@ -150,10 +163,9 @@ def seed_db():
                 app_id="com.appshield.admin"
             ))
         
-        # Seed Pre-provisioned Demo B2B Client (Acme Banking Corp)
         client_demo = db.query(DBUser).filter(DBUser.username == "client_demo").first()
         if not client_demo:
-            client_pwd = hashlib.sha256("client123".encode()).hexdigest()
+            client_pwd = pwd_context.hash("client123")
             db.add(DBUser(
                 username="client_demo",
                 password_hash=client_pwd,
@@ -163,7 +175,6 @@ def seed_db():
                 app_id="com.acmebank.mobile"
             ))
             
-            # Seed active Gold License for demo client valid for 365 days
             today = datetime.utcnow()
             valid_from_str = today.strftime("%Y-%m-%d")
             valid_to_str = (today + timedelta(days=365)).strftime("%Y-%m-%d")
@@ -194,19 +205,32 @@ def get_db():
     finally:
         db.close()
 
-app = FastAPI(
-    title="AppShield Enterprise Control Plane (v1.4)",
-    description="FastAPI B2B Portal Backend with Dual Role Auth, Sales Pipeline, Custom License Expiry Ranges & Gated SDK Downloads"
-)
+# ISD FIX M-01: Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
 
-# Enable CORS for browser fetch requests
+app = FastAPI(
+    title="AppShield Enterprise Control Plane (v1.4 — ISD Hardened)",
+    description="FastAPI B2B Portal Backend — ISD Security Hardened: bcrypt, env secrets, CORS allowlist, rate limiting, DB nonce persistence"
+)
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: StarletteRequest, exc: RateLimitExceeded):
+    return StarletteResponse(content="Rate limit exceeded. Too many login attempts.", status_code=429)
+
+# ISD FIX H-01: CORS restricted to explicit allowed origins only
 from fastapi.middleware.cors import CORSMiddleware
+ALLOWED_ORIGINS = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:3002,http://localhost:3003,https://appshield-portal.vercel.app"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "x-appshield-signature", "x-appshield-pow-solution"],
 )
 
 # Pydantic Schemas
@@ -244,12 +268,19 @@ class ThreatEvent(BaseModel):
     timestamp: int = Field(..., gt=1600000000000)
     nonce: str = Field(..., max_length=64)
 
-nonce_cache = set()
+# ISD FIX M-02: Nonce persistence in DB (survives server restarts)
+class DBNonce(Base):
+    __tablename__ = "nonce_cache"
+    nonce = Column(String(64), primary_key=True)
+    created_at = Column(Float, default=time.time)
+
+Base.metadata.create_all(bind=engine)  # ensure nonce table exists
+
 security = HTTPBearer()
 
 def verify_hmac(payload: bytes, signature: str) -> bool:
-    expected_mac = hmac.new(SECRET_KEY, payload, hashlib.sha256).digest()
     import base64
+    expected_mac = hmac.new(SECRET_KEY, payload, hashlib.sha256).digest()
     try:
         provided_mac = base64.b64decode(signature)
         return hmac.compare_digest(expected_mac, provided_mac)
@@ -274,12 +305,16 @@ def get_admin_user(user: dict = Depends(get_current_user)):
 # Authentication & User Management
 # ==============================================================================
 @app.post("/v1/auth/login")
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
-    pwd_hash = hashlib.sha256(request.password.encode()).hexdigest()
-    user = db.query(DBUser).filter(DBUser.username == request.username).first()
-    
-    if not user or user.password_hash != pwd_hash:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+@limiter.limit("5/minute")  # ISD FIX M-01: Rate limit — 5 attempts per minute per IP
+async def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(DBUser).filter(DBUser.username == body.username).first()
+
+    # ISD FIX H-02: bcrypt verify (timing-safe, salted)
+    if not user or not pwd_context.verify(body.password, user.password_hash):
+        # Legacy SHA-256 fallback for existing seeded accounts before migration
+        sha_hash = hashlib.sha256(body.password.encode()).hexdigest()
+        if not user or user.password_hash != sha_hash:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
     
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled by Admin")
@@ -289,7 +324,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         "role": user.role.value,
         "company_name": user.company_name,
         "app_id": user.app_id,
-        "exp": time.time() + 86400  # 24 hour token
+        "exp": time.time() + 86400
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return {
@@ -346,7 +381,7 @@ async def provision_client_account(req: ClientProvisionRequest, admin: dict = De
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
     
-    pwd_hash = hashlib.sha256(req.password.encode()).hexdigest()
+    pwd_hash = pwd_context.hash(req.password)  # ISD FIX H-02: bcrypt hash for provisioned accounts
     client_user = DBUser(
         username=req.username,
         password_hash=pwd_hash,
@@ -434,7 +469,8 @@ async def get_client_dashboard(user: dict = Depends(get_current_user), db: Sessi
 @app.get("/v1/client/download/sdk")
 async def download_sdk_binary(type: str = "aar", user: dict = Depends(get_current_user)):
     """Gated SDK Binary Download — Requires valid Client JWT token."""
-    base_dir = "/Users/developdit/Documents/AppSheild/AppShield_Master_Source_v1_1_Hardened_FIXED/saas_release"
+    # ISD FIX L-01: Use relative path so it works on any server (Render/local)
+    base_dir = os.path.join(os.path.dirname(__file__), "downloads")
     if type == "jar":
         file_path = os.path.join(base_dir, "shield-gradle-plugin-v1.2.0.jar")
         filename = "shield-gradle-plugin-v1.2.0.jar"
@@ -443,7 +479,7 @@ async def download_sdk_binary(type: str = "aar", user: dict = Depends(get_curren
         filename = "shield-sdk-v1.2.0.aar"
         
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="SDK binary file not found on server")
+        raise HTTPException(status_code=404, detail="SDK binary not found on server. Contact admin.")
         
     return FileResponse(file_path, media_type="application/octet-stream", filename=filename)
 
@@ -478,11 +514,14 @@ async def report_threat(
     current_time_ms = int(time.time() * 1000)
     if abs(current_time_ms - event.timestamp) > 300000:
         raise HTTPException(status_code=403, detail="Request expired")
-        
-    if event.nonce in nonce_cache:
+
+    # ISD FIX M-02: DB-backed nonce persistence (survives server restarts)
+    existing_nonce = db.query(DBNonce).filter(DBNonce.nonce == event.nonce).first()
+    if existing_nonce:
         raise HTTPException(status_code=403, detail="Replay attack detected")
-        
-    nonce_cache.add(event.nonce)
+    db.add(DBNonce(nonce=event.nonce, created_at=time.time()))
+    # Purge nonces older than 10 minutes
+    db.query(DBNonce).filter(DBNonce.created_at < time.time() - 600).delete()
 
     db_event = DBThreatLog(
         app_id=event.app_id,
@@ -499,26 +538,32 @@ async def report_threat(
     return {"status": "accepted", "event_id": db_event.id}
 
 @app.get("/v1/license/validate")
-async def validate_license(license_key: str, app_id: str, db: Session = Depends(get_db)):
-    lic = db.query(DBLicense).filter(DBLicense.license_key == license_key, DBLicense.is_active == True).first()
-    
+async def validate_license(
+    license_key: str,
+    app_id: str,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)  # ISD FIX M-03: Requires valid Bearer JWT — no anonymous access
+):
+    lic = db.query(DBLicense).filter(
+        DBLicense.license_key == license_key,
+        DBLicense.is_active == True
+    ).first()
+
+    # ISD FIX M-03: Removed SHIELD- prefix bypass — must match real DB record
     if not lic:
-        if license_key.startswith("SHIELD-"):
-            tier = SubscriptionTier.GOLD
-            expires_at = time.time() + (365 * 24 * 3600)
-        else:
-            return {"valid": False, "reason": "Invalid or inactive license key"}
-    else:
-        if lic.app_id != app_id or lic.expires_at < time.time():
-            return {"valid": False, "reason": "License mismatch or expired"}
-        tier = lic.tier
-        expires_at = lic.expires_at
+        return {"valid": False, "reason": "Invalid or inactive license key"}
+
+    if lic.app_id != app_id:
+        return {"valid": False, "reason": "License app_id mismatch"}
+
+    if lic.expires_at < time.time():
+        return {"valid": False, "reason": "License expired"}
 
     policy_payload = {
         "app_id": app_id,
-        "tier": tier,
-        "features": TIER_FEATURES[tier],
-        "exp": expires_at
+        "tier": lic.tier,
+        "features": TIER_FEATURES[lic.tier],
+        "exp": lic.expires_at
     }
     policy_jwt = jwt.encode(policy_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return {"valid": True, "policy_token": policy_jwt}

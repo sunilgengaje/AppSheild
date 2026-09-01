@@ -5,3 +5,5 @@ pyjwt
 python-multipart
 sqlalchemy
 psycopg2-binary
+passlib[bcrypt]
+slowapi
