@@ -144,8 +144,53 @@ class DBThreatLog(Base):
     timestamp = Column(BigInteger, nullable=False)
     nonce = Column(String(64), nullable=False)
 
+# ==============================================================================
+# Billing Models
+# ==============================================================================
+class InvoiceStatus(str, enum.Enum):
+    PENDING   = "PENDING"
+    PAID      = "PAID"
+    OVERDUE   = "OVERDUE"
+    CANCELLED = "CANCELLED"
+
+class DBInvoice(Base):
+    __tablename__ = "invoices"
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    invoice_number    = Column(String(40), unique=True, nullable=False)
+    client_username   = Column(String(50), nullable=False, index=True)
+    company_name      = Column(String(100), nullable=False)
+    email             = Column(String(100), nullable=False)
+    tier              = Column(SQLEnum(SubscriptionTier), nullable=False)
+    amount            = Column(Float, nullable=False)
+    currency          = Column(String(10), default="INR")
+    description       = Column(Text, nullable=True)
+    valid_from        = Column(String(20), nullable=False)
+    valid_to          = Column(String(20), nullable=False)
+    status            = Column(SQLEnum(InvoiceStatus), default=InvoiceStatus.PENDING, nullable=False)
+    due_date          = Column(String(20), nullable=True)
+    paid_at           = Column(DateTime, nullable=True)
+    payment_note      = Column(Text, nullable=True)   # Admin note on payment confirmation
+    created_at        = Column(DateTime, default=datetime.utcnow)
+
+class DBPaymentSettings(Base):
+    """Singleton row (id=1). Admin configures once, clients read it."""
+    __tablename__ = "payment_settings"
+    id            = Column(Integer, primary_key=True, default=1)
+    upi_id        = Column(String(100), nullable=True)
+    upi_name      = Column(String(100), nullable=True)
+    qr_code_url   = Column(Text, nullable=True)        # base64 data-URI or remote URL
+    bank_name     = Column(String(100), nullable=True)
+    account_name  = Column(String(100), nullable=True)
+    account_number= Column(String(30), nullable=True)
+    ifsc_code     = Column(String(20), nullable=True)
+    swift_code    = Column(String(20), nullable=True)
+    branch        = Column(String(100), nullable=True)
+    payment_instructions = Column(Text, nullable=True)
+    updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 # Auto-create tables & seed default accounts (including nonce_cache table for M-02)
 Base.metadata.create_all(bind=engine)
+
 
 def seed_db():
     db = SessionLocal()
@@ -757,6 +802,218 @@ async def attack_analytics_client_wise(admin: dict = Depends(get_admin_user), db
 
     result.sort(key=lambda x: x["total_detected"], reverse=True)
     return result
+
+# ==============================================================================
+# Billing — Pydantic Schemas
+# ==============================================================================
+class CreateInvoiceRequest(BaseModel):
+    client_username: str
+    tier: str
+    amount: float
+    currency: str = "INR"
+    description: str = ""
+    valid_from: str
+    valid_to: str
+    due_date: str = ""
+
+class MarkPaidRequest(BaseModel):
+    invoice_id: int
+    payment_note: str = ""
+
+class UpdatePaymentSettingsRequest(BaseModel):
+    upi_id: str = ""
+    upi_name: str = ""
+    qr_code_url: str = ""
+    bank_name: str = ""
+    account_name: str = ""
+    account_number: str = ""
+    ifsc_code: str = ""
+    swift_code: str = ""
+    branch: str = ""
+    payment_instructions: str = ""
+
+# ==============================================================================
+# Billing — Admin Endpoints
+# ==============================================================================
+def _next_invoice_number(db: Session) -> str:
+    count = db.query(DBInvoice).count()
+    return f"INV-{datetime.utcnow().strftime('%Y%m')}-{count + 1:04d}"
+
+@app.post("/v1/admin/billing/invoices")
+async def create_invoice(
+    req: CreateInvoiceRequest,
+    admin: dict = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new invoice for a client."""
+    client = db.query(DBUser).filter(DBUser.username == req.client_username, DBUser.role == UserRole.CLIENT).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    try:
+        tier = SubscriptionTier(req.tier)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid tier: {req.tier}")
+
+    inv = DBInvoice(
+        invoice_number=_next_invoice_number(db),
+        client_username=req.client_username,
+        company_name=client.company_name,
+        email=client.email,
+        tier=tier,
+        amount=req.amount,
+        currency=req.currency,
+        description=req.description,
+        valid_from=req.valid_from,
+        valid_to=req.valid_to,
+        due_date=req.due_date or None,
+        status=InvoiceStatus.PENDING
+    )
+    db.add(inv)
+    db.commit()
+    db.refresh(inv)
+    return {
+        "message": f"Invoice {inv.invoice_number} created",
+        "invoice_id": inv.id,
+        "invoice_number": inv.invoice_number
+    }
+
+@app.get("/v1/admin/billing/invoices")
+async def list_invoices_admin(
+    admin: dict = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """List all invoices across all clients."""
+    invoices = db.query(DBInvoice).order_by(DBInvoice.id.desc()).all()
+    return [_invoice_dict(inv) for inv in invoices]
+
+@app.post("/v1/admin/billing/invoices/mark-paid")
+async def mark_invoice_paid(
+    req: MarkPaidRequest,
+    admin: dict = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Admin manually marks an invoice as PAID after verifying bank/UPI transfer."""
+    inv = db.query(DBInvoice).filter(DBInvoice.id == req.invoice_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    inv.status = InvoiceStatus.PAID
+    inv.paid_at = datetime.utcnow()
+    inv.payment_note = req.payment_note
+    db.commit()
+    return {"message": f"Invoice {inv.invoice_number} marked as PAID", "invoice_number": inv.invoice_number}
+
+@app.post("/v1/admin/billing/invoices/cancel")
+async def cancel_invoice(
+    payload: dict,
+    admin: dict = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Cancel a pending invoice."""
+    inv = db.query(DBInvoice).filter(DBInvoice.id == payload.get("invoice_id")).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if inv.status == InvoiceStatus.PAID:
+        raise HTTPException(status_code=400, detail="Cannot cancel a PAID invoice")
+    inv.status = InvoiceStatus.CANCELLED
+    db.commit()
+    return {"message": f"Invoice {inv.invoice_number} cancelled"}
+
+@app.post("/v1/admin/billing/invoices/mark-overdue")
+async def mark_invoice_overdue(
+    payload: dict,
+    admin: dict = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    inv = db.query(DBInvoice).filter(DBInvoice.id == payload.get("invoice_id")).first()
+    if not inv or inv.status != InvoiceStatus.PENDING:
+        raise HTTPException(status_code=404, detail="Pending invoice not found")
+    inv.status = InvoiceStatus.OVERDUE
+    db.commit()
+    return {"message": f"Invoice {inv.invoice_number} marked OVERDUE"}
+
+# ==============================================================================
+# Billing — Payment Settings (Admin)
+# ==============================================================================
+def _get_or_create_settings(db: Session) -> DBPaymentSettings:
+    s = db.query(DBPaymentSettings).filter(DBPaymentSettings.id == 1).first()
+    if not s:
+        s = DBPaymentSettings(id=1)
+        db.add(s)
+        db.commit()
+        db.refresh(s)
+    return s
+
+@app.get("/v1/billing/payment-settings")
+async def get_payment_settings(db: Session = Depends(get_db)):
+    """Public endpoint — returns payment info (UPI, bank details, QR) so clients can pay."""
+    s = _get_or_create_settings(db)
+    return {
+        "upi_id": s.upi_id, "upi_name": s.upi_name, "qr_code_url": s.qr_code_url,
+        "bank_name": s.bank_name, "account_name": s.account_name,
+        "account_number": s.account_number, "ifsc_code": s.ifsc_code,
+        "swift_code": s.swift_code, "branch": s.branch,
+        "payment_instructions": s.payment_instructions
+    }
+
+@app.put("/v1/admin/billing/payment-settings")
+async def update_payment_settings(
+    req: UpdatePaymentSettingsRequest,
+    admin: dict = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Admin sets UPI ID, QR code, bank account details."""
+    s = _get_or_create_settings(db)
+    s.upi_id = req.upi_id or s.upi_id
+    s.upi_name = req.upi_name or s.upi_name
+    s.qr_code_url = req.qr_code_url or s.qr_code_url
+    s.bank_name = req.bank_name or s.bank_name
+    s.account_name = req.account_name or s.account_name
+    s.account_number = req.account_number or s.account_number
+    s.ifsc_code = req.ifsc_code or s.ifsc_code
+    s.swift_code = req.swift_code or s.swift_code
+    s.branch = req.branch or s.branch
+    s.payment_instructions = req.payment_instructions or s.payment_instructions
+    s.updated_at = datetime.utcnow()
+    db.commit()
+    return {"message": "Payment settings updated successfully"}
+
+# ==============================================================================
+# Billing — Client Endpoints
+# ==============================================================================
+@app.get("/v1/client/billing/invoices")
+async def list_invoices_client(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Client sees only their own invoices."""
+    invoices = db.query(DBInvoice).filter(
+        DBInvoice.client_username == user["user_id"]
+    ).order_by(DBInvoice.id.desc()).all()
+    return [_invoice_dict(inv) for inv in invoices]
+
+# ==============================================================================
+# Billing — Shared Helper
+# ==============================================================================
+def _invoice_dict(inv: DBInvoice) -> dict:
+    return {
+        "id": inv.id,
+        "invoice_number": inv.invoice_number,
+        "client_username": inv.client_username,
+        "company_name": inv.company_name,
+        "email": inv.email,
+        "tier": inv.tier.value,
+        "amount": inv.amount,
+        "currency": inv.currency,
+        "description": inv.description,
+        "valid_from": inv.valid_from,
+        "valid_to": inv.valid_to,
+        "due_date": inv.due_date,
+        "status": inv.status.value,
+        "paid_at": inv.paid_at.isoformat() if inv.paid_at else None,
+        "payment_note": inv.payment_note,
+        "created_at": inv.created_at.isoformat() if inv.created_at else None
+    }
 
 if __name__ == "__main__":
     import uvicorn

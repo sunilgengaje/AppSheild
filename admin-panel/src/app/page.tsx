@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 
 type UserRole = 'PUBLIC' | 'SUPER_ADMIN' | 'CLIENT';
-type SubTab = 'PIPELINE' | 'PROVISION' | 'USERS' | 'LICENSE_ANALYTICS' | 'ANALYTICS_OVERVIEW' | 'ANALYTICS_CLIENTS' | 'GLOBAL_THREATS' | 'CLIENT_OVERVIEW' | 'CLIENT_SDK' | 'CLIENT_DOCS' | 'CLIENT_THREATS';
+type SubTab = 'PIPELINE' | 'PROVISION' | 'USERS' | 'LICENSE_ANALYTICS' | 'ANALYTICS_OVERVIEW' | 'ANALYTICS_CLIENTS' | 'BILLING' | 'PAYMENT_SETTINGS' | 'GLOBAL_THREATS' | 'CLIENT_OVERVIEW' | 'CLIENT_SDK' | 'CLIENT_DOCS' | 'CLIENT_THREATS' | 'CLIENT_BILLING';
 
 export default function AppShieldEnterprisePortal() {
   const [role, setRole] = useState<UserRole>('PUBLIC');
@@ -76,6 +76,34 @@ export default function AppShieldEnterprisePortal() {
   const [analyticsClients, setAnalyticsClients] = useState<any[]>([]);
   const [analyticsView, setAnalyticsView] = useState<'table'|'pie'>('table');
   const [clientAnalyticsView, setClientAnalyticsView] = useState<'table'|'pie'>('table');
+  // Billing admin state
+  const [invoicesList, setInvoicesList] = useState<any[]>([]);
+  const [clientInvoices, setClientInvoices] = useState<any[]>([]);
+  const [paymentSettings, setPaymentSettings] = useState<any>(null);
+  const [markPaidNote, setMarkPaidNote] = useState('');
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number|null>(null);
+  const [billingMsg, setBillingMsg] = useState('');
+  // Invoice creation form
+  const [invClient, setInvClient] = useState('');
+  const [invTier, setInvTier] = useState('GOLD');
+  const [invAmount, setInvAmount] = useState('');
+  const [invCurrency, setInvCurrency] = useState('INR');
+  const [invDesc, setInvDesc] = useState('');
+  const [invFrom, setInvFrom] = useState(new Date().toISOString().split('T')[0]);
+  const [invTo, setInvTo] = useState(new Date(Date.now()+365*24*3600*1000).toISOString().split('T')[0]);
+  const [invDue, setInvDue] = useState('');
+  // Payment settings form
+  const [psUpiId, setPsUpiId] = useState('');
+  const [psUpiName, setPsUpiName] = useState('');
+  const [psQr, setPsQr] = useState('');
+  const [psBankName, setPsBankName] = useState('');
+  const [psAccName, setPsAccName] = useState('');
+  const [psAccNum, setPsAccNum] = useState('');
+  const [psIfsc, setPsIfsc] = useState('');
+  const [psSwift, setPsSwift] = useState('');
+  const [psBranch, setPsBranch] = useState('');
+  const [psInstructions, setPsInstructions] = useState('');
+  const [psMsg, setPsMsg] = useState('');
   // ──────────────────────────────────────────────────────────────────────────
 
   // Handle Login with smooth server + demo fallback
@@ -170,17 +198,136 @@ export default function AppShieldEnterprisePortal() {
     } catch (e) {}
   };
 
-  // Toggle user active/inactive
-  const handleToggleUser = async (username: string) => {
+  // Fetch Invoices (Admin)
+  const fetchInvoicesAdmin = async (token: string) => {
     try {
-      const res = await fetch(`${API_BASE}/v1/admin/users/toggle-status`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ username })
-      });
-      if (res.ok) fetchUsers(authToken);
+      const res = await fetch(`${API_BASE}/v1/admin/billing/invoices`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setInvoicesList(await res.json());
     } catch (e) {}
   };
+
+  // Fetch Payment Settings (Public / Client / Admin)
+  const fetchPaymentSettings = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/billing/payment-settings`);
+      if (res.ok) {
+        const data = await res.json();
+        setPaymentSettings(data);
+        setPsUpiId(data.upi_id || '');
+        setPsUpiName(data.upi_name || '');
+        setPsQr(data.qr_code_url || '');
+        setPsBankName(data.bank_name || '');
+        setPsAccName(data.account_name || '');
+        setPsAccNum(data.account_number || '');
+        setPsIfsc(data.ifsc_code || '');
+        setPsSwift(data.swift_code || '');
+        setPsBranch(data.branch || '');
+        setPsInstructions(data.payment_instructions || '');
+      }
+    } catch (e) {}
+  };
+
+  // Fetch Invoices (Client)
+  const fetchClientInvoices = async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/client/billing/invoices`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setClientInvoices(await res.json());
+    } catch (e) {}
+  };
+
+  // Create Invoice (Admin)
+  const handleCreateInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBillingMsg('');
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/billing/invoices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          client_username: invClient,
+          tier: invTier,
+          amount: parseFloat(invAmount) || 0,
+          currency: invCurrency,
+          description: invDesc,
+          valid_from: invFrom,
+          valid_to: invTo,
+          due_date: invDue
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBillingMsg(`✅ Invoice ${data.invoice_number} created successfully!`);
+        fetchInvoicesAdmin(authToken);
+        setInvAmount('');
+        setInvDesc('');
+      } else {
+        setBillingMsg(`❌ ${data.detail || 'Error creating invoice'}`);
+      }
+    } catch (e: any) {
+      setBillingMsg(`❌ Error: ${e.message}`);
+    }
+  };
+
+  // Mark Invoice Paid (Admin)
+  const handleMarkPaid = async (invoiceId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/billing/invoices/mark-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ invoice_id: invoiceId, payment_note: markPaidNote })
+      });
+      if (res.ok) {
+        setMarkPaidNote('');
+        setSelectedInvoiceId(null);
+        fetchInvoicesAdmin(authToken);
+      }
+    } catch (e) {}
+  };
+
+  // Cancel Invoice (Admin)
+  const handleCancelInvoice = async (invoiceId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/billing/invoices/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ invoice_id: invoiceId })
+      });
+      if (res.ok) fetchInvoicesAdmin(authToken);
+    } catch (e) {}
+  };
+
+  // Save Payment Settings (Admin)
+  const handleSavePaymentSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPsMsg('');
+    try {
+      const res = await fetch(`${API_BASE}/v1/admin/billing/payment-settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          upi_id: psUpiId,
+          upi_name: psUpiName,
+          qr_code_url: psQr,
+          bank_name: psBankName,
+          account_name: psAccName,
+          account_number: psAccNum,
+          ifsc_code: psIfsc,
+          swift_code: psSwift,
+          branch: psBranch,
+          payment_instructions: psInstructions
+        })
+      });
+      if (res.ok) {
+        setPsMsg('✅ Payment settings saved successfully!');
+        fetchPaymentSettings();
+      } else {
+        setPsMsg('❌ Failed to save payment settings');
+      }
+    } catch (e: any) {
+      setPsMsg(`❌ Error: ${e.message}`);
+    }
+  };
+
 
   // Submit Public Quote Request
   const handleQuoteSubmit = async (e: React.FormEvent) => {
@@ -497,7 +644,16 @@ export default function AppShieldEnterprisePortal() {
               className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'ANALYTICS_CLIENTS' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
               🏢 Client-wise Analytics
             </button>
+            <button onClick={() => { setActiveTab('BILLING'); fetchInvoicesAdmin(authToken); fetchUsers(authToken); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'BILLING' ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+              💳 Invoices & Billing
+            </button>
+            <button onClick={() => { setActiveTab('PAYMENT_SETTINGS'); fetchPaymentSettings(); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'PAYMENT_SETTINGS' ? 'bg-teal-600 text-white shadow-lg shadow-teal-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+              🏦 Bank & QR Setup
+            </button>
           </div>
+
 
           {/* PIPELINE TAB */}
           {activeTab === 'PIPELINE' && (
@@ -921,11 +1077,394 @@ export default function AppShieldEnterprisePortal() {
                   </tbody>
                 </table>
               </div>
+          {/* ── ADMIN BILLING & INVOICES TAB ── */}
+          {activeTab === 'BILLING' && (
+            <div className="space-y-8">
+              {/* Create Invoice Card */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+                <h2 className="text-2xl font-bold mb-2">Create & Issue Client Invoice</h2>
+                <p className="text-slate-400 text-xs mb-6">
+                  Issue manual invoice for B2B client subscription. Clients can pay via configured Bank Transfer / UPI QR code.
+                </p>
+
+                {billingMsg && (
+                  <div className={`p-4 rounded-xl text-xs mb-6 font-mono ${billingMsg.startsWith('✅') ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
+                    {billingMsg}
+                  </div>
+                )}
+
+                <form onSubmit={handleCreateInvoice} className="space-y-4 text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Select Client</label>
+                      <select
+                        required
+                        value={invClient}
+                        onChange={(e) => setInvClient(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="">-- Choose Client --</option>
+                        {usersList.map((u: any) => (
+                          <option key={u.username} value={u.username}>
+                            {u.company_name} ({u.username})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Package Tier</label>
+                      <select
+                        value={invTier}
+                        onChange={(e) => setInvTier(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="TRIAL">Trial Tier</option>
+                        <option value="BRONZE">Bronze Tier</option>
+                        <option value="SILVER">Silver Tier</option>
+                        <option value="GOLD">Gold Tier</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Amount</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required
+                        value={invAmount}
+                        onChange={(e) => setInvAmount(e.target.value)}
+                        placeholder="e.g. 75000"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Currency</label>
+                      <select
+                        value={invCurrency}
+                        onChange={(e) => setInvCurrency(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="INR">INR (₹)</option>
+                        <option value="USD">USD ($)</option>
+                        <option value="EUR">EUR (€)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Coverage Start Date</label>
+                      <input
+                        type="date"
+                        required
+                        value={invFrom}
+                        onChange={(e) => setInvFrom(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Coverage Expiry Date</label>
+                      <input
+                        type="date"
+                        required
+                        value={invTo}
+                        onChange={(e) => setInvTo(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Payment Due Date</label>
+                      <input
+                        type="date"
+                        value={invDue}
+                        onChange={(e) => setInvDue(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Description / Line Items</label>
+                    <input
+                      type="text"
+                      value={invDesc}
+                      onChange={(e) => setInvDesc(e.target.value)}
+                      placeholder="e.g. Annual AppShield Gold Subscription for com.acmebank.mobile"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:opacity-90 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-violet-500/20 text-xs transition"
+                  >
+                    Generate &amp; Issue Invoice ➔
+                  </button>
+                </form>
+              </div>
+
+              {/* Invoices List Table */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold">All Issued Invoices</h2>
+                  <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-full">{invoicesList.length} total</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                      <tr>
+                        {['Invoice #', 'Company / Client', 'Tier', 'Amount', 'Valid Range', 'Due Date', 'Status', 'Actions'].map((h) => (
+                          <th key={h} className="py-3 px-4 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {invoicesList.length === 0 ? (
+                        <tr><td colSpan={8} className="py-8 text-center text-slate-500">No invoices issued yet.</td></tr>
+                      ) : (
+                        invoicesList.map((inv: any) => (
+                          <tr key={inv.id} className="hover:bg-slate-800/40 transition">
+                            <td className="py-3 px-4 font-mono font-bold text-indigo-300">{inv.invoice_number}</td>
+                            <td className="py-3 px-4">
+                              <span className="block font-semibold text-white">{inv.company_name}</span>
+                              <span className="block text-[10px] text-slate-500 font-mono">{inv.client_username}</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400">{inv.tier}</span>
+                            </td>
+                            <td className="py-3 px-4 font-bold text-white">
+                              {inv.currency === 'INR' ? '₹' : inv.currency === 'USD' ? '$' : '€'}{inv.amount.toLocaleString()}
+                            </td>
+                            <td className="py-3 px-4 text-slate-400 whitespace-nowrap">{inv.valid_from} → {inv.valid_to}</td>
+                            <td className="py-3 px-4 text-slate-400 whitespace-nowrap">{inv.due_date || '—'}</td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                inv.status === 'PAID' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                inv.status === 'PENDING' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                                inv.status === 'OVERDUE' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                                'bg-slate-700 text-slate-400'
+                              }`}>
+                                {inv.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              {inv.status !== 'PAID' && inv.status !== 'CANCELLED' && (
+                                <div className="flex gap-2">
+                                  {selectedInvoiceId === inv.id ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="UTR / Ref note..."
+                                        value={markPaidNote}
+                                        onChange={(e) => setMarkPaidNote(e.target.value)}
+                                        className="bg-slate-950 border border-slate-700 px-2 py-1 rounded text-[10px] text-white w-28"
+                                      />
+                                      <button
+                                        onClick={() => handleMarkPaid(inv.id)}
+                                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded"
+                                      >
+                                        Confirm Paid
+                                      </button>
+                                      <button
+                                        onClick={() => setSelectedInvoiceId(null)}
+                                        className="text-slate-400 hover:text-white text-[10px]"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <button
+                                        onClick={() => setSelectedInvoiceId(inv.id)}
+                                        className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/40 px-2.5 py-1 rounded-lg text-[10px] font-bold transition"
+                                      >
+                                        Mark Paid
+                                      </button>
+                                      <button
+                                        onClick={() => handleCancelInvoice(inv.id)}
+                                        className="bg-rose-500/20 text-rose-400 hover:bg-rose-500/40 px-2.5 py-1 rounded-lg text-[10px] font-bold transition"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                              {inv.status === 'PAID' && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  Paid: {inv.paid_at ? new Date(inv.paid_at).toLocaleDateString() : 'Yes'}
+                                  {inv.payment_note && ` (${inv.payment_note})`}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── ADMIN PAYMENT SETTINGS TAB (Bank & UPI QR Configuration) ── */}
+          {activeTab === 'PAYMENT_SETTINGS' && (
+            <div className="space-y-8">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+                <h2 className="text-2xl font-bold mb-2">Manual Payment Gateway Setup (UPI &amp; Bank Details)</h2>
+                <p className="text-slate-400 text-xs mb-6">
+                  Configure your company UPI VPA, QR code, and Direct Bank Transfer details. Clients will see these details on their invoice pay screen.
+                </p>
+
+                {psMsg && (
+                  <div className={`p-4 rounded-xl text-xs mb-6 font-mono ${psMsg.startsWith('✅') ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
+                    {psMsg}
+                  </div>
+                )}
+
+                <form onSubmit={handleSavePaymentSettings} className="space-y-6 text-xs">
+                  {/* Section 1: UPI & QR Code */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6">
+                    <h3 className="text-sm font-bold text-teal-400 mb-4 flex items-center gap-2">
+                      📱 UPI &amp; QR Code Details
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">UPI VPA ID</label>
+                        <input
+                          type="text"
+                          value={psUpiId}
+                          onChange={(e) => setPsUpiId(e.target.value)}
+                          placeholder="e.g. appshield@icici"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">UPI Payee / Merchant Name</label>
+                        <input
+                          type="text"
+                          value={psUpiName}
+                          onChange={(e) => setPsUpiName(e.target.value)}
+                          placeholder="e.g. AppShield Security Technologies"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">QR Code Image URL / Base64</label>
+                        <input
+                          type="text"
+                          value={psQr}
+                          onChange={(e) => setPsQr(e.target.value)}
+                          placeholder="https://... or data:image/png;base64,..."
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500 font-mono text-[10px]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 2: Bank Account Details */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6">
+                    <h3 className="text-sm font-bold text-teal-400 mb-4 flex items-center gap-2">
+                      🏦 Bank Account Transfer Details (NEFT / RTGS / IMPS)
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">Bank Name</label>
+                        <input
+                          type="text"
+                          value={psBankName}
+                          onChange={(e) => setPsBankName(e.target.value)}
+                          placeholder="e.g. HDFC Bank Ltd"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">Account Holder Name</label>
+                        <input
+                          type="text"
+                          value={psAccName}
+                          onChange={(e) => setPsAccName(e.target.value)}
+                          placeholder="e.g. AppShield Security Technologies Pvt Ltd"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">Account Number</label>
+                        <input
+                          type="text"
+                          value={psAccNum}
+                          onChange={(e) => setPsAccNum(e.target.value)}
+                          placeholder="e.g. 50200012345678"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">IFSC Code</label>
+                        <input
+                          type="text"
+                          value={psIfsc}
+                          onChange={(e) => setPsIfsc(e.target.value)}
+                          placeholder="e.g. HDFC0001234"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">SWIFT / BIC Code (Optional)</label>
+                        <input
+                          type="text"
+                          value={psSwift}
+                          onChange={(e) => setPsSwift(e.target.value)}
+                          placeholder="e.g. HDFCINBBXXX"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">Branch Name</label>
+                        <input
+                          type="text"
+                          value={psBranch}
+                          onChange={(e) => setPsBranch(e.target.value)}
+                          placeholder="e.g. BKC Main Branch, Mumbai"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Payment Instructions */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6">
+                    <h3 className="text-sm font-bold text-teal-400 mb-2">📝 Instructions for Clients</h3>
+                    <textarea
+                      rows={3}
+                      value={psInstructions}
+                      onChange={(e) => setPsInstructions(e.target.value)}
+                      placeholder="e.g. Please mention your Invoice # in the transfer remark. Send UTR receipt screenshot to billing@appshield.io for instant verification."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:opacity-90 text-white font-bold py-3.5 px-8 rounded-xl shadow-lg shadow-teal-500/20 text-xs transition"
+                  >
+                    Save Payment Gateway Setup ➔
+                  </button>
+                </form>
+              </div>
             </div>
           )}
 
         </div>
       )}
+
 
       {/* CLIENT PORTAL WORKSPACE */}
       {role === 'CLIENT' && (
@@ -963,6 +1502,14 @@ export default function AppShieldEnterprisePortal() {
               }`}
             >
               🚨 App Threat Telemetry
+            </button>
+            <button
+              onClick={() => { setActiveTab('CLIENT_BILLING'); fetchClientInvoices(authToken); fetchPaymentSettings(); }}
+              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition ${
+                activeTab === 'CLIENT_BILLING' ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/20' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              💳 Invoices & Payments
             </button>
           </div>
 
@@ -1156,6 +1703,178 @@ export default function AppShieldEnterprisePortal() {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          {/* CLIENT BILLING & PAYMENTS TAB */}
+          {activeTab === 'CLIENT_BILLING' && (
+            <div className="space-y-8">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white mb-1">Invoices &amp; Subscription Billing</h2>
+                    <p className="text-slate-400 text-xs">
+                      View issued B2B invoices and complete manual payment via Bank Transfer or UPI QR Code.
+                    </p>
+                  </div>
+                  <span className="bg-violet-500/10 border border-violet-500/30 text-violet-400 px-4 py-1.5 rounded-full text-xs font-bold">
+                    {clientInvoices.length} Issued Invoice{clientInvoices.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                {/* Invoices List */}
+                <div className="overflow-x-auto mb-8">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                      <tr>
+                        {['Invoice #', 'Package Tier', 'Amount', 'Coverage Range', 'Due Date', 'Status'].map((h) => (
+                          <th key={h} className="py-3 px-4 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {clientInvoices.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-500">
+                            No billing invoices currently issued for your account.
+                          </td>
+                        </tr>
+                      ) : (
+                        clientInvoices.map((inv: any) => (
+                          <tr key={inv.id} className="hover:bg-slate-800/40 transition">
+                            <td className="py-3.5 px-4 font-mono font-bold text-indigo-300">{inv.invoice_number}</td>
+                            <td className="py-3.5 px-4">
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400">
+                                {inv.tier} TIER
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 font-bold text-white text-sm">
+                              {inv.currency === 'INR' ? '₹' : inv.currency === 'USD' ? '$' : '€'}{inv.amount.toLocaleString()}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">{inv.valid_from} → {inv.valid_to}</td>
+                            <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">{inv.due_date || '—'}</td>
+                            <td className="py-3.5 px-4">
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${
+                                inv.status === 'PAID' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                inv.status === 'PENDING' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse' :
+                                inv.status === 'OVERDUE' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                                'bg-slate-700 text-slate-400'
+                              }`}>
+                                {inv.status === 'PENDING' ? '⏳ PAYMENT PENDING' : inv.status === 'PAID' ? '✅ PAID & ACTIVATED' : inv.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Manual Payment Methods Card */}
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-8">
+                  <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
+                    <div className="w-10 h-10 bg-teal-500/10 border border-teal-500/30 text-teal-400 rounded-xl flex items-center justify-center font-bold text-lg">
+                      🏦
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Manual Payment Details</h3>
+                      <p className="text-xs text-slate-400">Transfer funds via UPI QR or Bank NEFT/RTGS to complete subscription</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Left: UPI & QR Code */}
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center text-center">
+                      <h4 className="text-sm font-bold text-teal-400 mb-3 uppercase tracking-wider">📱 Option 1: Instant UPI / QR Scan</h4>
+                      
+                      {paymentSettings?.qr_code_url ? (
+                        <div className="bg-white p-3 rounded-2xl mb-4 shadow-lg border border-slate-700 max-w-[180px]">
+                          <img src={paymentSettings.qr_code_url} alt="Payment QR Code" className="w-full h-auto rounded-lg" />
+                        </div>
+                      ) : (
+                        <div className="w-36 h-36 bg-slate-950 border-2 border-dashed border-slate-800 rounded-2xl flex flex-col items-center justify-center text-slate-500 text-[10px] mb-4">
+                          <span className="text-2xl mb-1">📷</span>
+                          <span>Scan &amp; Pay QR</span>
+                        </div>
+                      )}
+
+                      {paymentSettings?.upi_id && (
+                        <div className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-left">
+                          <span className="block text-[10px] text-slate-500 uppercase font-semibold">UPI VPA ID</span>
+                          <div className="flex justify-between items-center">
+                            <span className="font-mono text-xs text-emerald-400 font-bold">{paymentSettings.upi_id}</span>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(paymentSettings.upi_id);
+                                alert('UPI ID copied to clipboard!');
+                              }}
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] px-2.5 py-1 rounded font-bold transition"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          {paymentSettings?.upi_name && (
+                            <span className="block text-[10px] text-slate-400 mt-1 font-sans">Payee: {paymentSettings.upi_name}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right: Direct Bank Transfer Details */}
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-3 text-xs">
+                      <h4 className="text-sm font-bold text-teal-400 mb-4 uppercase tracking-wider">🏦 Option 2: Direct Bank Transfer (NEFT / RTGS / IMPS)</h4>
+
+                      <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Bank Name:</span>
+                          <span className="font-bold text-white">{paymentSettings?.bank_name || 'HDFC Bank Ltd'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Account Name:</span>
+                          <span className="font-bold text-white">{paymentSettings?.account_name || 'AppShield Security Technologies'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Account Number:</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-emerald-400">{paymentSettings?.account_number || 'Contact Admin'}</span>
+                            {paymentSettings?.account_number && (
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(paymentSettings.account_number);
+                                  alert('Account Number copied!');
+                                }}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] px-2 py-0.5 rounded font-bold"
+                              >
+                                Copy
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">IFSC Code:</span>
+                          <span className="font-mono font-bold text-indigo-300">{paymentSettings?.ifsc_code || 'Contact Admin'}</span>
+                        </div>
+                        {paymentSettings?.swift_code && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">SWIFT / BIC:</span>
+                            <span className="font-mono font-bold text-indigo-300">{paymentSettings.swift_code}</span>
+                          </div>
+                        )}
+                        {paymentSettings?.branch && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Branch:</span>
+                            <span className="text-slate-300">{paymentSettings.branch}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Instructions */}
+                      <div className="bg-amber-500/10 border border-amber-500/30 text-amber-400 p-3 rounded-xl text-[11px] leading-relaxed">
+                        <span className="font-bold block mb-1">📌 Important Payment Note:</span>
+                        {paymentSettings?.payment_instructions || 'Please quote your Invoice # in the transfer remark or description. Access is provisioned upon payment confirmation.'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
