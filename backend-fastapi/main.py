@@ -370,6 +370,31 @@ async def login(request: Request, body: LoginRequest, db: Session = Depends(get_
         "app_id": user.app_id
     }
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=6)
+
+@app.post("/v1/auth/change-password")
+async def change_password(
+    req: ChangePasswordRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Allows authenticated Admin or Client user to change their password in Supabase DB."""
+    db_user = db.query(DBUser).filter(DBUser.username == user["user_id"]).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if not pwd_context.verify(req.current_password, db_user.password_hash):
+        sha_hash = hashlib.sha256(req.current_password.encode()).hexdigest()
+        if db_user.password_hash != sha_hash:
+            raise HTTPException(status_code=400, detail="Incorrect current password")
+    
+    db_user.password_hash = pwd_context.hash(req.new_password)
+    db.commit()
+    return {"message": "Password updated successfully in Supabase DB"}
+
+
 # ==============================================================================
 # Sales Pipeline: Leads, Demos & Quotations
 # ==============================================================================
