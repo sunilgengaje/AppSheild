@@ -21,25 +21,40 @@ SECRET_KEY = b"REPLACE_WITH_PROVISIONED_SECRET"
 JWT_SECRET = "super_secret_jwt_key_for_appshield_enterprise_v1"
 JWT_ALGORITHM = "HS256"
 
-# Dynamic DB URL: Uses Supabase Transaction Pooler (ap-northeast-1 port 6543 for IPv4 compatibility), with safe SQLite fallback
-SUPABASE_POOLER_URL = "postgresql://postgres.kuoshydjkhwaemgmelea:Dev%40San%23Vih%40Sun%242895%29@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
-RAW_DB_URL = os.getenv("DATABASE_URL", SUPABASE_POOLER_URL)
+# Dynamic DB URL: Try Supabase Pooler formats (IPv4 compatible) with password DevSunl%40123
+ENC_PWD = "DevSunl%40123"
+PROJ_REF = "kuoshydjkhwaemgmelea"
 
-if RAW_DB_URL.startswith("postgres://"):
-    RAW_DB_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
+CANDIDATE_URLS = [
+    f"postgresql://postgres.{PROJ_REF}:{ENC_PWD}@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres",
+    f"postgresql://postgres:{ENC_PWD}@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres",
+    f"postgresql://postgres:{ENC_PWD}@db.{PROJ_REF}.supabase.co:5432/postgres"
+]
 
-# Safe DB initialization with automatic SQLite fallback if cloud DB is unreachable
-try:
-    if RAW_DB_URL.startswith("sqlite"):
-        engine = create_engine(RAW_DB_URL, connect_args={"check_same_thread": False})
-    else:
-        engine = create_engine(RAW_DB_URL, connect_args={"connect_timeout": 5})
-    
-    # Test connection
-    with engine.connect() as conn:
-        print("✅ Successfully connected to Primary Database!")
-except Exception as db_err:
-    print(f"⚠️ Primary DB unreachable ({db_err}). Auto-falling back to local SQLite database...")
+RAW_DB_URL = os.getenv("DATABASE_URL")
+if RAW_DB_URL:
+    if RAW_DB_URL.startswith("postgres://"):
+        RAW_DB_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
+    CANDIDATE_URLS.insert(0, RAW_DB_URL)
+
+engine = None
+for url in CANDIDATE_URLS:
+    try:
+        if url.startswith("sqlite"):
+            eng = create_engine(url, connect_args={"check_same_thread": False})
+        else:
+            eng = create_engine(url, connect_args={"connect_timeout": 5})
+        
+        with eng.connect() as conn:
+            print(f"✅ Successfully connected to Primary Database!")
+            engine = eng
+            RAW_DB_URL = url
+            break
+    except Exception as err:
+        print(f"DEBUG: Connection attempt failed for {url.split('@')[-1]}: {err}")
+
+if not engine:
+    print("⚠️ All Cloud DB connections failed. Auto-falling back to local SQLite database...")
     RAW_DB_URL = "sqlite:///./appshield.db"
     engine = create_engine(RAW_DB_URL, connect_args={"check_same_thread": False})
 
