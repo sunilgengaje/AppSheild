@@ -27,8 +27,17 @@ from sqlalchemy.orm import sessionmaker, Session
 JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))  # Auto-generate if not set in env
 JWT_ALGORITHM = "HS256"
 
-# ISD FIX H-02: bcrypt password context (replaces raw SHA-256)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
+
+# ISD FIX H-02: Native bcrypt password hashing
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
 
 # HMAC key for telemetry signature verification
 SECRET_KEY = os.environ.get("HMAC_SECRET_KEY", "REPLACE_WITH_PROVISIONED_SECRET").encode()
@@ -200,7 +209,7 @@ def seed_db():
         if not admin_seed_pwd:
             print("⚠️  ADMIN_SEED_PASSWORD env var not set. Admin account not seeded.")
         else:
-            admin_pwd = pwd_context.hash(admin_seed_pwd)
+            admin_pwd = hash_password(admin_seed_pwd)
             db.add(DBUser(
                 username="admin",
                 password_hash=admin_pwd,
@@ -215,7 +224,7 @@ def seed_db():
         if not client_seed_pwd:
             print("⚠️  CLIENT_SEED_PASSWORD env var not set. Demo client account not seeded.")
         else:
-            client_pwd = pwd_context.hash(client_seed_pwd)
+            client_pwd = hash_password(client_seed_pwd)
             db.add(DBUser(
                 username="client_demo",
                 password_hash=client_pwd,
@@ -344,7 +353,7 @@ async def login(request: Request, body: LoginRequest, db: Session = Depends(get_
     user = db.query(DBUser).filter(DBUser.username == body.username).first()
 
     # ISD FIX H-02: bcrypt verify (timing-safe, salted)
-    if not user or not pwd_context.verify(body.password, user.password_hash):
+    if not user or not verify_password(body.password, user.password_hash):
         # Legacy SHA-256 fallback for existing seeded accounts before migration
         sha_hash = hashlib.sha256(body.password.encode()).hexdigest()
         if not user or user.password_hash != sha_hash:
@@ -385,12 +394,12 @@ async def change_password(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    if not pwd_context.verify(req.current_password, db_user.password_hash):
+    if not verify_password(req.current_password, db_user.password_hash):
         sha_hash = hashlib.sha256(req.current_password.encode()).hexdigest()
         if db_user.password_hash != sha_hash:
             raise HTTPException(status_code=400, detail="Incorrect current password")
     
-    db_user.password_hash = pwd_context.hash(req.new_password)
+    db_user.password_hash = hash_password(req.new_password)
     db.commit()
     return {"message": "Password updated successfully in Supabase DB"}
 
@@ -440,7 +449,7 @@ async def provision_client_account(req: ClientProvisionRequest, admin: dict = De
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
     
-    pwd_hash = pwd_context.hash(req.password)  # ISD FIX H-02: bcrypt hash for provisioned accounts
+    pwd_hash = hash_password(req.password)  # ISD FIX H-02: bcrypt hash for provisioned accounts
     client_user = DBUser(
         username=req.username,
         password_hash=pwd_hash,

@@ -1,11 +1,9 @@
 import os
 import sys
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from main import DBUser, CANDIDATE_URLS
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def main():
     if len(sys.argv) < 3:
@@ -39,7 +37,9 @@ def main():
             print(f"❌ User '{username}' not found in DB.")
             sys.exit(1)
 
-        user.password_hash = pwd_context.hash(new_password)
+        # Hash password directly using bcrypt library
+        pwd_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        user.password_hash = pwd_hash
         db.commit()
         print(f"🎉 Password for user '{username}' updated successfully in Supabase DB!")
     finally:
