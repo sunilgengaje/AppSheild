@@ -58,6 +58,21 @@ const ThreatDashboard = () => {
                     </div>
                 </div>
             </section>
+            <section style={{ marginTop: '40px' }}>
+                <h2>Document & AI Verification</h2>
+                <div style={{ padding: '20px', border: '1px solid #ccc', borderRadius: '8px', backgroundColor: '#fff' }}>
+                    <h3>Upload ID / Document for Scan</h3>
+                    <p style={{ color: '#555' }}>
+                        Analyze images for deepfake artifacts, digital tampering, and AI-generated synthetic identities.
+                    </p>
+                    <div style={{ marginTop: '15px' }}>
+                        <input type="file" accept="image/*" style={{ display: 'block', marginBottom: '15px' }} />
+                        <button style={{ padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                            Verify Document Authenticity
+                        </button>
+                    </div>
+                </div>
+            </section>
         </div>
     );
 };

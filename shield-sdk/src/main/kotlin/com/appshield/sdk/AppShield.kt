@@ -171,6 +171,14 @@ object AppShield {
     }
 
     /**
+     * Secures an android.webkit.WebView against common vulnerabilities (XSS, local file exfiltration).
+     * Integrators should call this immediately after inflating or instantiating a WebView.
+     */
+    fun secureWebView(webView: android.webkit.WebView, enableJavaScript: Boolean = false) {
+        com.appshield.sdk.checks.WebViewGuard.secureWebView(webView, enableJavaScript)
+    }
+
+    /**
      * Always returns a usable PolicyEnforcer. See the class-level FIX
      * APPLIED note: this recreates from the last-known config rather than
      * ever handing back null, so a single external write to `enforcer`

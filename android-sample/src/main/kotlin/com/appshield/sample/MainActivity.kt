@@ -13,10 +13,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var riskScoreText: TextView
     
-    // Vulnerable hardcoded secrets for auditor testing
-    private val RSA_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...\n-----END PUBLIC KEY-----"
-    private val RSA_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAw...\n-----END RSA PRIVATE KEY-----"
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -43,7 +39,7 @@ class MainActivity : AppCompatActivity() {
             if (decrypted == "err_protected") {
                 Toast.makeText(this, "⚠️ Access Denied: Device Compromised", Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(this, "✅ Decrypted Secret: $decrypted\nKey Loaded: ${RSA_PUBLIC_KEY.substring(0,26)}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "✅ Decrypted Secret: $decrypted", Toast.LENGTH_SHORT).show()
             }
         }
     }
