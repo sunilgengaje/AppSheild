@@ -1,0 +1,13 @@
+*.zip
+*.apk
+*.jar
+*.aar
+*.db
+build/
+.gradle/
+appshield_sample/
+sdks/
+saas_release/
+android-sample/
+venv/
+.next/
